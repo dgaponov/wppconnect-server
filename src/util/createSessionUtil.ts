@@ -236,7 +236,7 @@ export default class CreateSessionUtil {
       Object.assign(client, { status: 'CONNECTED', qrcode: null });
 
       req.logger.info(`Started Session: ${client.session}`);
-      //callWebHook(client, req, 'session-logged', { status: 'CONNECTED'});
+      callWebHook(client, req, 'state_change', { status: 'CONNECTED' });
       req.io.emit('session-logged', { status: true, session: client.session });
       startHelper(client, req);
     } catch (error) {
@@ -264,11 +264,20 @@ export default class CreateSessionUtil {
       if (conflits.includes(state)) {
         client.useHere();
       }
+
+      callWebHook(client, req, 'state_change', { status: state });
     });
   }
 
   async listenMessages(client: WhatsAppServer, req: Request) {
-    await client.onMessage(async (message: any) => {
+    await client.onAnyMessage(async (message: any) => {
+      message.session = client.session;
+      if (
+        req.serverOptions?.websocket?.autoDownload ||
+        req.serverOptions?.webhook?.autoDownload
+      ) {
+        await autoDownload(client, req, message);
+      }
       eventEmitter.emit(`mensagem-${client.session}`, client, message);
       callWebHook(client, req, 'onmessage', message);
       if (message.type === 'location')
