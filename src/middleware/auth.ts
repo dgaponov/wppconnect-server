@@ -30,6 +30,14 @@ const verifyToken = (req: Request, res: Response, next: NextFunction): any => {
   if (!session)
     return res.status(401).send({ message: 'Session not informed' });
 
+  req.session = formatSession(req.params.session);
+  req.client = clientsArray[req.session];
+
+  return next();
+
+  // временно выключаем следующую часть
+
+
   try {
     let tokenDecrypt = '';
     let sessionDecrypt = '';
