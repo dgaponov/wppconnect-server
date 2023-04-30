@@ -10,6 +10,7 @@ export default {
   tokenStoreType: 'file',
   maxListeners: 15,
   customUserDataDir: './userDataDir/',
+  tokenStorePath: './tokens/',
   webhook: {
     url: null,
     autoDownload: true,

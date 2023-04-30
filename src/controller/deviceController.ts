@@ -623,7 +623,7 @@ export async function clearChat(req: Request, res: Response) {
      #swagger.parameters["session"] = {
       schema: 'NERDWHATS_AMERICA'
      }
-     
+
      #swagger.requestBody = {
       required: false,
       "@content": {
@@ -696,7 +696,7 @@ export async function archiveChat(req: Request, res: Response) {
      #swagger.parameters["session"] = {
       schema: 'NERDWHATS_AMERICA'
      }
-     
+
      #swagger.requestBody = {
       required: false,
       "@content": {
@@ -802,7 +802,7 @@ export async function deleteMessage(req: Request, res: Response) {
      #swagger.parameters["session"] = {
       schema: 'NERDWHATS_AMERICA'
      }
-     
+
      #swagger.requestBody = {
       required: false,
       "@content": {
@@ -1000,16 +1000,10 @@ export async function forwardMessages(req: Request, res: Response) {
       }
      }
    */
-  const { phone, messageId, isGroup = false } = req.body;
+  const { to, messageIds } = req.body;
 
   try {
-    let response;
-
-    if (!isGroup) {
-      response = await req.client.forwardMessagesV2(`${phone[0]}`, messageId);
-    } else {
-      response = await req.client.forwardMessagesV2(`${phone[0]}`, messageId);
-    }
+    const response = await req.client.forwardMessages(to, messageIds, false);
 
     res.status(201).json({ status: 'success', response: response });
   } catch (e) {
@@ -1236,7 +1230,7 @@ export async function setProfilePic(req: Request, res: Response) {
      #swagger.parameters["session"] = {
       schema: 'NERDWHATS_AMERICA'
      }
-     #swagger.consumes = ['multipart/form-data']  
+     #swagger.consumes = ['multipart/form-data']
       #swagger.parameters['file'] = {
           in: 'formData',
           type: 'file',
@@ -1785,7 +1779,7 @@ export async function setRecording(req: Request, res: Response) {
      #swagger.parameters["session"] = {
       schema: 'NERDWHATS_AMERICA'
      }
-     
+
      #swagger.requestBody = {
       required: true,
       "@content": {
@@ -2030,7 +2024,7 @@ export async function setProfileStatus(req: Request, res: Response) {
         $status: 'My new status',
       }
      }
-     
+
      #swagger.requestBody = {
       required: true,
       "@content": {
@@ -2074,7 +2068,7 @@ export async function rejectCall(req: Request, res: Response) {
      #swagger.parameters["session"] = {
       schema: 'NERDWHATS_AMERICA'
      }
-     
+
      #swagger.requestBody = {
       required: true,
       "@content": {
