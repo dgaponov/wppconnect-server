@@ -1,4 +1,5 @@
 import { FileTokenStore as fsTokenStore } from './FileTokenStore/FileTokenStore';
+import config from '../../config';
 
 class FileTokenStore {
   declare client: any;
@@ -12,6 +13,7 @@ class FileTokenStore {
     decodeFunction: (text) => {
       return this.decodeFunction(text, this.client);
     },
+    path: config.tokenStorePath,
   });
 
   public encodeFunction(data: any, config: any) {

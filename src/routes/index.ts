@@ -76,6 +76,11 @@ routes.post(
   verifyToken,
   SessionController.startSession
 );
+routes.get(
+  '/api/:session/get-snapshot',
+  verifyToken,
+  SessionController.getSnapshot
+);
 routes.post(
   '/api/:session/logout-session',
   verifyToken,
