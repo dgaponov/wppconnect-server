@@ -50,7 +50,11 @@ const verifyToken = (req: Request, res: Response, next: NextFunction): any => {
         .replace(/-/g, '+');
     } catch (error) {
       try {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
         if (token && token !== '' && token.split(' ').length > 0) {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
           const token_value = token.split(' ')[1];
           if (token_value)
             tokenDecrypt = token_value.replace(/_/g, '/').replace(/-/g, '+');
