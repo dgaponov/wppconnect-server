@@ -204,11 +204,13 @@ export async function startSession(req: Request, res: Response) {
             properties: {
               webhook: { type: "string" },
               waitQrCode: { type: "boolean" },
+              proxy: { type: "string" }
             }
           },
           example: {
             webhook: "",
             waitQrCode: false,
+            proxy: "http://bob:password123@proxy.example.com:8000"
           }
         }
       }
