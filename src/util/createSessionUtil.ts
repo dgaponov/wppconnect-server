@@ -89,7 +89,10 @@ export default class CreateSessionUtil {
             : {},
           req.serverOptions.createOptions,
           {
-            browserArgs,
+            browserArgs: [
+              ...browserArgs,
+              ...(req.serverOptions.createOptions?.browserArgs || []),
+            ],
             session: session,
             phoneNumber: client.config.phone ?? null,
             deviceName:
