@@ -15,9 +15,8 @@
  */
 import { create, SocketState, StatusFind } from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
-import proxyChain from 'proxy-chain';
+import * as proxyChain from 'proxy-chain';
 
-import { download } from '../controller/sessionController';
 import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
