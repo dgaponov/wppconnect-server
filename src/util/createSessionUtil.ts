@@ -15,6 +15,7 @@
  */
 import { create, SocketState, StatusFind } from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
+import proxyChain from 'proxy-chain';
 
 import { download } from '../controller/sessionController';
 import { WhatsAppServer } from '../types/WhatsAppServer';
@@ -60,6 +61,19 @@ export default class CreateSessionUtil {
         };
       }
 
+      const browserArgs: string[] = [];
+
+      if (client.config.proxy) {
+        req.logger.info(
+          `[${session}] try getting proxy for ${client.config.proxy}`
+        );
+        const newProxyUrl = await proxyChain.anonymizeProxy(
+          client.config.proxy as string
+        );
+        req.logger.info(`[${session}] proxy setted to ${newProxyUrl}`);
+        browserArgs.push(`--proxy-server=${newProxyUrl}`);
+      }
+
       const wppClient = await create(
         Object.assign(
           {},
@@ -75,6 +89,7 @@ export default class CreateSessionUtil {
             : {},
           req.serverOptions.createOptions,
           {
+            browserArgs,
             session: session,
             phoneNumber: client.config.phone ?? null,
             deviceName:

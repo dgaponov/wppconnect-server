@@ -27,6 +27,8 @@ class FileTokenStore {
       client.config = object.config;
     if (object.webhook && Object.keys(client.config).length === 0)
       client.config.webhook = object.webhook;
+    if (object.proxy && Object.keys(client.config).length === 0)
+      client.config.proxy = object.proxy;
     return object;
   }
 }

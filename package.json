@@ -55,6 +55,7 @@
     "qrcode": "^1.5.4",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
+    "proxy-chain": "^2.3.0",
     "swagger-autogen": "^2.23.7",
     "swagger-ui-express": "^5.0.1",
     "unzipper": "^0.12.3",
