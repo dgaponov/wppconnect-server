@@ -81,7 +81,10 @@ export default class CreateSessionUtil {
           { tokenStore: myTokenStore },
           req.serverOptions.createOptions,
           {
-            browserArgs,
+            browserArgs: [
+              ...browserArgs,
+              ...(req.serverOptions.createOptions?.browserArgs || []),
+            ],
             session: session,
             deviceName:
               client.config?.deviceName || req.serverOptions.deviceName,
