@@ -80,7 +80,10 @@ export default class CreateSessionUtil {
           { tokenStore: myTokenStore },
           req.serverOptions.createOptions,
           {
-            browserArgs,
+            browserArgs: [
+              ...browserArgs,
+              ...(req.serverOptions.createOptions?.browserArgs || []),
+            ],
             session: session,
             phoneNumber: client.config.phone ?? null,
             deviceName:
