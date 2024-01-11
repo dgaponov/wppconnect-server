@@ -1003,7 +1003,7 @@ export async function forwardMessages(req: Request, res: Response) {
   const { to, messageIds } = req.body;
 
   try {
-    const response = await req.client.forwardMessages(to, messageIds, false);
+    const response = await req.client.forwardMessage(to, messageIds);
 
     res.status(201).json({ status: 'success', response: response });
   } catch (e) {

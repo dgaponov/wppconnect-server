@@ -13,7 +13,8 @@ class FileTokenStore {
     decodeFunction: (text) => {
       return this.decodeFunction(text, this.client);
     },
-    path: config.tokenStorePath,
+    // @ts-ignore
+    path: config.tokenStorePath as string,
   });
 
   public encodeFunction(data: any, config: any) {
