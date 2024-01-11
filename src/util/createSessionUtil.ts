@@ -319,10 +319,6 @@ export default class CreateSessionUtil {
     await client.onAnyMessage(async (message: any) => {
       message.session = client.session;
 
-      if (message.type === 'sticker') {
-        download(message, client, req.logger);
-      }
-
       if (
         req.serverOptions?.websocket?.autoDownload ||
         (req.serverOptions?.webhook?.autoDownload && message.fromMe == false)
