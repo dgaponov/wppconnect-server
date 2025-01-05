@@ -12,7 +12,6 @@
 /wppconnect-server.njsproj
 /wppconnect-server.njsproj.user
 *.sln
-/package-lock.json
 *.png
 *.tgz
 *.zip
