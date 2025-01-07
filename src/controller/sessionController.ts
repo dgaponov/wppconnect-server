@@ -523,17 +523,21 @@ export async function getSnapshot(req: Request, res: any) {
   try {
     const page = req.client.waPage;
     const screenshot = await page.screenshot({
-      type: "png",
-      encoding: "base64"
+      type: 'png',
+      encoding: 'base64',
     });
 
     return res.status(200).json({
       status: 'success',
-      screenshot: `data:image/png;base64,${screenshot}`
+      screenshot: `data:image/png;base64,${screenshot}`,
     });
   } catch (ex) {
     req.logger.error(ex);
-    return res.status(500).json({ status: 'error', message: 'The session is not active', error: ex });
+    return res.status(500).json({
+      status: 'error',
+      message: 'The session is not active',
+      error: ex,
+    });
   }
 }
 
