@@ -15,6 +15,7 @@
  */
 import { create, SocketState, StatusFind } from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
+import fs from 'fs';
 import * as proxyChain from 'proxy-chain';
 
 import { WhatsAppServer } from '../types/WhatsAppServer';
@@ -120,7 +121,7 @@ export default class CreateSessionUtil {
             onLoadingScreen: (percent: string, message: string) => {
               req.logger.info(`[${session}] ${percent}% - ${message}`);
             },
-            statusFind: (statusFind: StatusFind) => {
+            statusFind: async (statusFind: StatusFind) => {
               try {
                 eventEmitter.emit(
                   `status-${client.session}`,
@@ -135,6 +136,24 @@ export default class CreateSessionUtil {
                   client.qrcode = null;
                   client.close();
                   clientsArray[session] = undefined;
+
+                  // remove session data
+                  if (req.serverOptions.customUserDataDir) {
+                    const path = req.serverOptions.customUserDataDir + session;
+                    if (fs.existsSync(path)) {
+                      await fs.promises.rm(path, {
+                        recursive: true,
+                      });
+                    }
+                  }
+                  const pathToken =
+                    __dirname + `../../../tokens/${session}.data.json`;
+                  if (fs.existsSync(pathToken)) {
+                    await fs.promises.rm(pathToken);
+                  }
+                  req.logger.info(
+                    `[${session}] Removed session json and browser data`
+                  );
                 }
                 callWebHook(client, req, 'status-find', {
                   status: statusFind,
