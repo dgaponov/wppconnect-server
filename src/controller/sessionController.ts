@@ -822,3 +822,17 @@ export async function editBusinessProfile(req: Request, res: Response) {
     });
   }
 }
+
+export async function setProfilePicture(req: Request, res: Response) {
+  const { base64 } = req.body;
+
+  try {
+    res.status(200).json(await req.client.setProfilePic(base64));
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Error set profile picture',
+      error: error,
+    });
+  }
+}
