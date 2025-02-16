@@ -111,6 +111,10 @@ routes.post(
   statusConnection,
   SessionController.downloadMediaByMessage
 );
+routes.post(
+  '/api/:session/set-profile-pic',
+  SessionController.setProfilePicture
+);
 
 // Messages
 routes.post(
