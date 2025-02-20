@@ -114,6 +114,7 @@ routes.post(
 );
 routes.post(
   '/api/:session/set-profile-pic',
+  verifyToken,
   SessionController.setProfilePicture
 );
 
