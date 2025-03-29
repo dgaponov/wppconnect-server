@@ -707,6 +707,22 @@ export async function subscribePresence(req: Request, res: Response) {
   }
 }
 
+export async function getBusinessProfile(req: Request, res: any) {
+  try {
+    const { phone } = req.params;
+    return res
+      .status(200)
+      .json(await req.client.getBusinessProfile(`${phone}@c.us`));
+  } catch (ex) {
+    req.logger.error(ex);
+    return res.status(500).json({
+      status: 'error',
+      message: 'The session is not active',
+      error: ex,
+    });
+  }
+}
+
 export async function setOnlinePresence(req: Request, res: Response) {
   /**
    * #swagger.tags = ["Misc"]

@@ -16,6 +16,7 @@
 import { create, SocketState, StatusFind } from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
 import fs from 'fs';
+import path from 'path';
 import * as proxyChain from 'proxy-chain';
 
 import { WhatsAppServer } from '../types/WhatsAppServer';
@@ -139,15 +140,19 @@ export default class CreateSessionUtil {
 
                   // remove session data
                   if (req.serverOptions.customUserDataDir) {
-                    const path = req.serverOptions.customUserDataDir + session;
-                    if (fs.existsSync(path)) {
-                      await fs.promises.rm(path, {
+                    const pathFull = path.join(
+                      req.serverOptions.customUserDataDir,
+                      session
+                    );
+                    if (fs.existsSync(pathFull)) {
+                      await fs.promises.rm(pathFull, {
                         recursive: true,
                       });
                     }
                   }
-                  const pathToken =
-                    __dirname + `../../../tokens/${session}.data.json`;
+                  const pathToken = path.join(
+                    __dirname + `../../../tokens/${session}.data.json`
+                  );
                   if (fs.existsSync(pathToken)) {
                     await fs.promises.rm(pathToken);
                   }
