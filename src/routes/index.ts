@@ -863,6 +863,12 @@ routes.post(
 
 // Business
 routes.post(
+  '/api/:session/get-business-profile/:phone',
+  verifyToken,
+  statusConnection,
+  SessionController.getBusinessProfile
+);
+routes.post(
   '/api/:session/edit-business-profile',
   verifyToken,
   statusConnection,
