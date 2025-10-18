@@ -295,7 +295,9 @@ export async function logOutSession(req: Request, res: Response): Promise<any> {
    */
   try {
     const session = req.session;
-    await req.client.logout();
+    try {
+      await req.client.logout();
+    } catch (_e) {}
     deleteSessionOnArray(req.session);
 
     setTimeout(async () => {
