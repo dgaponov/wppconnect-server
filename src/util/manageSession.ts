@@ -140,50 +140,59 @@ async function checkRunningSessions() {
   logger.info(`[SESSIONS-CHECK] Sessions: ${names.join(', ')}`);
 
   for (const session of names) {
-    const client = clientsArray[session];
+    try {
+      const client = clientsArray[session];
 
-    if (client && client.status === 'CONNECTED') {
-      logger.info('[SESSIONS-CHECK] Session ' + session + ' is running');
-      return;
-    }
-
-    if (client && client.status === 'INITIALIZING') {
-      logger.info('[SESSIONS-CHECK] Session ' + session + ' is initializing');
-      return;
-    }
-
-    if (!client || !client.status || client.status === 'CLOSED') {
-      logger.info(
-        '[SESSIONS-CHECK] Session ' + session + ' is not running or closed'
-      );
-      logger.info(
-        '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
-      );
-      await startSession(config, session, logger);
-    }
-
-    if (client && client.status && !(await client.isConnected())) {
-      logger.info('[SESSIONS-CHECK] Session ' + session + ' is not connected');
-      logger.info(
-        '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
-      );
-
-      try {
-        await client.close();
-      } catch (error) {
-        logger.error(
-          '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
-        );
+      if (client && client.status === 'CONNECTED') {
+        logger.info('[SESSIONS-CHECK] Session ' + session + ' is running');
+        continue;
       }
 
-      await startSession(config, session, logger);
+      if (client && client.status === 'INITIALIZING') {
+        logger.info('[SESSIONS-CHECK] Session ' + session + ' is initializing');
+        continue;
+      }
+
+      if (!client || !client.status || client.status === 'CLOSED') {
+        logger.info(
+          '[SESSIONS-CHECK] Session ' + session + ' is not running or closed'
+        );
+        logger.info(
+          '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
+        );
+        await startSession(config, session, logger);
+        continue;
+      }
+
+      if (client && client.status && !(await client.isConnected())) {
+        logger.info(
+          '[SESSIONS-CHECK] Session ' + session + ' is not connected'
+        );
+        logger.info(
+          '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
+        );
+
+        try {
+          await client.close();
+        } catch (error) {
+          logger.error(
+            '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
+          );
+        }
+
+        await startSession(config, session, logger);
+        continue;
+      }
+    } catch (error) {
+      logger.error('[SESSIONS-CHECK] Error checking session ' + session);
+      logger.error(error);
     }
   }
 
   logger.info('[SESSIONS-CHECK] Completed checking running sessions');
-  scheduleCheckRunningSessions(); // Schedule next check
+  scheduleCheckRunningSessions();
 }
 
 export function scheduleCheckRunningSessions() {
-  checkRunningSessionsTimeout = setTimeout(checkRunningSessions, 1000 * 60 * 5); // 5 minutes
+  checkRunningSessionsTimeout = setTimeout(checkRunningSessions, 1000 * 60 * 5);
 }
