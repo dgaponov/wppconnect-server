@@ -19,6 +19,7 @@ import { Request } from 'express';
 import fileSystem from 'fs';
 import path from 'path';
 import unzipper from 'unzipper';
+import { execSync } from 'child_process';
 
 import { logger } from '..';
 import config from '../config';
@@ -150,13 +151,20 @@ async function restartSession(session: string) {
     client.status = 'CLOSED';
   }
 
-  // Remove browser lockfile for remove conflicts with other playwright instance
   if (config.customUserDataDir) {
-    const lockfilePath = path.join(
-      config.customUserDataDir,
-      session,
-      'SingletonLock'
-    );
+    const sessionUserDataDir = path.join(config.customUserDataDir, session);
+
+    // Kill all browsers with session user data dir
+    try {
+      execSync(`pkill -f '${sessionUserDataDir}'`);
+    } catch (err) {
+      logger.error('[SESSIONS-CHECK] Error killing browsers for ' + session);
+      logger.error(err);
+    }
+
+    const lockfilePath = path.join(sessionUserDataDir, 'SingletonLock');
+
+    // Remove browser lockfile for remove conflicts with other playwright instance
     if (fileSystem.existsSync(lockfilePath)) {
       await fileSystem.promises.rm(lockfilePath);
     }
