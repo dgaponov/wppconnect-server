@@ -147,27 +147,29 @@ export default class CreateSessionUtil {
 
                   clientsArray[session] = undefined;
 
-                  // remove session data
-                  if (req.serverOptions.customUserDataDir) {
-                    const pathFull = path.join(
-                      req.serverOptions.customUserDataDir,
-                      session
-                    );
-                    if (fs.existsSync(pathFull)) {
-                      await fs.promises.rm(pathFull, {
-                        recursive: true,
-                      });
+                  // remove session data if qr read error
+                  if (statusFind === 'qrReadError') {
+                    if (req.serverOptions.customUserDataDir) {
+                      const pathFull = path.join(
+                        req.serverOptions.customUserDataDir,
+                        session
+                      );
+                      if (fs.existsSync(pathFull)) {
+                        await fs.promises.rm(pathFull, {
+                          recursive: true,
+                        });
+                      }
                     }
+                    const pathToken = path.join(
+                      __dirname + `../../../tokens/${session}.data.json`
+                    );
+                    if (fs.existsSync(pathToken)) {
+                      await fs.promises.rm(pathToken);
+                    }
+                    req.logger.info(
+                      `[${session}] Removed session json and browser data`
+                    );
                   }
-                  const pathToken = path.join(
-                    __dirname + `../../../tokens/${session}.data.json`
-                  );
-                  if (fs.existsSync(pathToken)) {
-                    await fs.promises.rm(pathToken);
-                  }
-                  req.logger.info(
-                    `[${session}] Removed session json and browser data`
-                  );
                 }
                 callWebHook(client, req, 'status-find', {
                   status: statusFind,
