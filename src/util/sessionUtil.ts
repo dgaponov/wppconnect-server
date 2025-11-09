@@ -39,12 +39,14 @@ export const chromiumArgs = [
   '--ignore-certificate-errors-spki-list', // Ignores certificate errors in SPKI list
 ];
 // eslint-disable-next-line prefer-const
-export let clientsArray: Whatsapp[] = [];
+type WhatsappSession = { session: string } & (
+  | { status: null }
+  | ({ status: string; config: any } & Whatsapp)
+);
+export let clientsArray: Record<string, WhatsappSession | undefined> = {};
 export const sessions = [];
 export const eventEmitter = new EventEmitter();
 
 export function deleteSessionOnArray(session: string): void {
-  const newArray = clientsArray;
   delete clientsArray[session];
-  clientsArray = newArray;
 }
