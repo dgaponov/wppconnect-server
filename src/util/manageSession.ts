@@ -127,6 +127,10 @@ export async function closeAllSessions(req: Request) {
   });
 }
 
+function sleep(time: number) {
+  return new Promise((resolve) => setTimeout(resolve, time));
+}
+
 let checkRunningSessionsTimeout: NodeJS.Timeout | null = null;
 
 async function checkRunningSessions() {
@@ -161,6 +165,7 @@ async function checkRunningSessions() {
           '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
         );
         await startSession(config, session, logger);
+        await sleep(10000);
         continue;
       }
 
@@ -181,6 +186,7 @@ async function checkRunningSessions() {
         }
 
         await startSession(config, session, logger);
+        await sleep(10000);
         continue;
       }
     } catch (error) {
