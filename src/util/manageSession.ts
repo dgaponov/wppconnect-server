@@ -17,6 +17,7 @@
 import archiver from 'archiver';
 import { Request } from 'express';
 import fileSystem from 'fs';
+import path from 'path';
 import unzipper from 'unzipper';
 
 import { logger } from '..';
@@ -147,6 +148,18 @@ async function restartSession(session: string) {
       );
     }
     client.status = 'CLOSED';
+  }
+
+  // Remove browser lockfile for remove conflicts with other playwright instance
+  if (config.customUserDataDir) {
+    const lockfilePath = path.join(
+      config.customUserDataDir,
+      session,
+      'SingletonLock'
+    );
+    if (fileSystem.existsSync(lockfilePath)) {
+      await fileSystem.promises.rm(lockfilePath);
+    }
   }
 
   await startSession(config, session, logger);
