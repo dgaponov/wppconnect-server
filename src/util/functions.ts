@@ -247,6 +247,16 @@ export async function startAllSessions(config: any, logger: any) {
   }
 }
 
+export async function startSession(config: any, session: string, logger: any) {
+  try {
+    await api.post(
+      `${config.host}:${config.port}/api/${session}/start-session`
+    );
+  } catch (e) {
+    logger.error(e);
+  }
+}
+
 export async function startHelper(client: any, req: any) {
   if (req.serverOptions.webhook.allUnreadOnStart) await sendUnread(client, req);
 
