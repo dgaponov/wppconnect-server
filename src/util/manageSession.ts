@@ -153,7 +153,22 @@ async function checkRunningSessions() {
       }
 
       if (client && client.status === 'INITIALIZING') {
-        logger.info('[SESSIONS-CHECK] Session ' + session + ' is initializing');
+        logger.info(
+          '[SESSIONS-CHECK] Session ' +
+            session +
+            ' is initializing very long. Try restarting session...'
+        );
+        try {
+          await client.close?.();
+          client.status = 'CLOSED';
+        } catch (error) {
+          logger.error(
+            '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
+          );
+        }
+
+        await startSession(config, session, logger);
+        await sleep(10000);
         continue;
       }
 
