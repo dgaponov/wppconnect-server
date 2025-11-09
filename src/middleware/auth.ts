@@ -32,12 +32,7 @@ const verifyToken = (req: Request, res: Response, next: NextFunction): any => {
 
   req.session = formatSession(req.params.session);
   const client = clientsArray[req.session];
-  if (!client || !client.status) {
-    return res.status(401).json({
-      message: 'Session not found',
-    });
-  }
-  req.client = client;
+  req.client = client as any;
 
   return next();
 
