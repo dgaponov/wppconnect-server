@@ -133,6 +133,26 @@ function sleep(time: number) {
 
 let checkRunningSessionsTimeout: NodeJS.Timeout | null = null;
 
+async function restartSession(session: string) {
+  const client = clientsArray[session];
+
+  logger.info('[SESSIONS-CHECK] Trying to restart session ' + session + '...');
+
+  if (client && client.status) {
+    try {
+      await client.close?.();
+    } catch (error) {
+      logger.error(
+        '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
+      );
+    }
+    client.status = 'CLOSED';
+  }
+
+  await startSession(config, session, logger);
+  await sleep(10000);
+}
+
 async function checkRunningSessions() {
   logger.info('[SESSIONS-CHECK] Checking running sessions...');
   const names = await getAllTokens();
@@ -148,6 +168,19 @@ async function checkRunningSessions() {
       const client = clientsArray[session];
 
       if (client && client.status === 'CONNECTED') {
+        try {
+          await client.waPage.screenshot({
+            type: 'png',
+            encoding: 'base64',
+          });
+        } catch (error) {
+          logger.error(
+            '[SESSIONS-CHECK] Error taking screenshot of session ' + session
+          );
+          await restartSession(session);
+          continue;
+        }
+
         logger.info('[SESSIONS-CHECK] Session ' + session + ' is running');
         continue;
       }
@@ -158,17 +191,8 @@ async function checkRunningSessions() {
             session +
             ' is initializing very long. Try restarting session...'
         );
-        try {
-          await client.close?.();
-          client.status = 'CLOSED';
-        } catch (error) {
-          logger.error(
-            '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
-          );
-        }
 
-        await startSession(config, session, logger);
-        await sleep(10000);
+        await restartSession(session);
         continue;
       }
 
@@ -176,11 +200,7 @@ async function checkRunningSessions() {
         logger.info(
           '[SESSIONS-CHECK] Session ' + session + ' is not running or closed'
         );
-        logger.info(
-          '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
-        );
-        await startSession(config, session, logger);
-        await sleep(10000);
+        await restartSession(session);
         continue;
       }
 
@@ -188,20 +208,8 @@ async function checkRunningSessions() {
         logger.info(
           '[SESSIONS-CHECK] Session ' + session + ' is not connected'
         );
-        logger.info(
-          '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
-        );
 
-        try {
-          await client.close();
-        } catch (error) {
-          logger.error(
-            '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
-          );
-        }
-
-        await startSession(config, session, logger);
-        await sleep(10000);
+        await restartSession(session);
         continue;
       }
     } catch (error) {
