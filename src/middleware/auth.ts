@@ -31,12 +31,17 @@ const verifyToken = (req: Request, res: Response, next: NextFunction): any => {
     return res.status(401).send({ message: 'Session not informed' });
 
   req.session = formatSession(req.params.session);
-  req.client = clientsArray[req.session];
+  const client = clientsArray[req.session];
+  if (!client || !client.status) {
+    return res.status(401).json({
+      message: 'Session not found',
+    });
+  }
+  req.client = client;
 
   return next();
 
   // временно выключаем следующую часть
-
 
   try {
     let tokenDecrypt = '';
@@ -83,7 +88,7 @@ const verifyToken = (req: Request, res: Response, next: NextFunction): any => {
         if (result) {
           req.session = formatSession(req.params.session);
           req.token = tokenDecrypt;
-          req.client = clientsArray[req.session];
+          req.client = client as any;
           next();
         } else {
           return res
