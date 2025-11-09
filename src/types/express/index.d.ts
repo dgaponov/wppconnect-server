@@ -10,7 +10,7 @@ export {};
 declare global {
   namespace Express {
     export interface Request {
-      client: Whatsapp & { urlcode: string; status: string };
+      client: Whatsapp & { urlcode?: string; status: string };
       logger: Logger;
       session: string;
       token?: string;

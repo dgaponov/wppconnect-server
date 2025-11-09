@@ -159,6 +159,7 @@ export async function clearSessionData(req: Request, res: Response) {
     if (req?.client?.page) {
       delete clientsArray[req.params.session];
       await req.client.logout();
+      await req.client.close();
     }
     const path = config.customUserDataDir + session;
     const pathToken = __dirname + `../../../tokens/${session}.data.json`;

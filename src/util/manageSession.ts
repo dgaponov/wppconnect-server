@@ -21,7 +21,7 @@ import unzipper from 'unzipper';
 
 import { logger } from '..';
 import config from '../config';
-import { startAllSessions } from './functions';
+import { startAllSessions, startSession } from './functions';
 import getAllTokens from './getAllTokens';
 import { clientsArray } from './sessionUtil';
 
@@ -116,14 +116,74 @@ export async function closeAllSessions(req: Request) {
   names.forEach(async (session: string) => {
     const client = clientsArray[session];
     try {
-      delete clientsArray[session];
       if (client?.status) {
         logger.info('Stopping session: ' + session);
-        await client.page.browser().close();
+        await client.close();
       }
       delete clientsArray[session];
     } catch (error) {
       logger.error('Not was possible stop session: ' + session);
     }
   });
+}
+
+let checkRunningSessionsTimeout: NodeJS.Timeout | null = null;
+
+async function checkRunningSessions() {
+  logger.info('[SESSIONS-CHECK] Checking running sessions...');
+  const names = await getAllTokens();
+
+  logger.info(
+    '[SESSIONS-CHECK] Found ' + names.length + ' sessions in store...'
+  );
+
+  logger.info(`[SESSIONS-CHECK] Sessions: ${names.join(', ')}`);
+
+  for (const session of names) {
+    const client = clientsArray[session];
+
+    if (client && client.status === 'CONNECTED') {
+      logger.info('[SESSIONS-CHECK] Session ' + session + ' is running');
+      return;
+    }
+
+    if (client && client.status === 'INITIALIZING') {
+      logger.info('[SESSIONS-CHECK] Session ' + session + ' is initializing');
+      return;
+    }
+
+    if (!client || !client.status || client.status === 'CLOSED') {
+      logger.info(
+        '[SESSIONS-CHECK] Session ' + session + ' is not running or closed'
+      );
+      logger.info(
+        '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
+      );
+      await startSession(config, session, logger);
+    }
+
+    if (client && client.status && !(await client.isConnected())) {
+      logger.info('[SESSIONS-CHECK] Session ' + session + ' is not connected');
+      logger.info(
+        '[SESSIONS-CHECK] Trying to restart session ' + session + '...'
+      );
+
+      try {
+        await client.close();
+      } catch (error) {
+        logger.error(
+          '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
+        );
+      }
+
+      await startSession(config, session, logger);
+    }
+  }
+
+  logger.info('[SESSIONS-CHECK] Completed checking running sessions');
+  scheduleCheckRunningSessions(); // Schedule next check
+}
+
+export function scheduleCheckRunningSessions() {
+  checkRunningSessionsTimeout = setTimeout(checkRunningSessions, 1000 * 60 * 5); // 5 minutes
 }

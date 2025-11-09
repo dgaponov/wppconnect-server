@@ -195,8 +195,11 @@ export default class CreateSessionUtil {
     } catch (e) {
       req.logger.error(e);
       if (e instanceof Error && e.name == 'TimeoutError') {
+        console.log(`TimeoutError on session ${session}`);
+        console.log(e);
         const client = this.getClient(session) as any;
         client.status = 'CLOSED';
+        client.close();
       }
     }
   }
@@ -419,12 +422,11 @@ export default class CreateSessionUtil {
 
   getClient(session: any) {
     let client = clientsArray[session];
-
     if (!client)
       client = clientsArray[session] = {
         status: null,
         session: session,
-      } as any;
+      };
     return client;
   }
 }
