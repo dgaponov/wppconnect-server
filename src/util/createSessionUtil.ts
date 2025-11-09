@@ -136,7 +136,15 @@ export default class CreateSessionUtil {
                 ) {
                   client.status = 'CLOSED';
                   client.qrcode = null;
-                  client.close();
+
+                  try {
+                    await client.close?.();
+                  } catch (_error) {
+                    req.logger.error(
+                      '[${session}] Error closing session ' + session
+                    );
+                  }
+
                   clientsArray[session] = undefined;
 
                   // remove session data
