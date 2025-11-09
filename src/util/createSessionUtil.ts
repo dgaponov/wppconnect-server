@@ -131,7 +131,8 @@ export default class CreateSessionUtil {
                 );
                 if (
                   statusFind === StatusFind.autocloseCalled ||
-                  statusFind === StatusFind.disconnectedMobile
+                  statusFind === StatusFind.disconnectedMobile ||
+                  statusFind === StatusFind.qrReadError
                 ) {
                   client.status = 'CLOSED';
                   client.qrcode = null;
@@ -165,7 +166,10 @@ export default class CreateSessionUtil {
                   session: client.session,
                 });
                 req.logger.info(statusFind + '\n\n');
-              } catch (error) {}
+              } catch (error) {
+                req.logger.info(`[${session}] Error finding status`);
+                req.logger.error(error);
+              }
             },
           }
         )
