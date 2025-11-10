@@ -149,17 +149,6 @@ export default class CreateSessionUtil {
 
                   // remove session data if qr read error
                   if (statusFind === 'qrReadError') {
-                    if (req.serverOptions.customUserDataDir) {
-                      const pathFull = path.join(
-                        req.serverOptions.customUserDataDir,
-                        session
-                      );
-                      if (fs.existsSync(pathFull)) {
-                        await fs.promises.rm(pathFull, {
-                          recursive: true,
-                        });
-                      }
-                    }
                     const pathToken = path.join(
                       __dirname + `../../../tokens/${session}.data.json`
                     );
