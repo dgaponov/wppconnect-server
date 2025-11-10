@@ -224,7 +224,7 @@ async function checkRunningSessions() {
             type: 'png',
             encoding: 'base64',
           });
-          await client.getBlockList();
+          await client.unblockContact(session);
         } catch (error) {
           logger.error(
             '[SESSIONS-CHECK] Error taking screenshot of session ' + session
