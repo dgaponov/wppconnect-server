@@ -156,7 +156,7 @@ async function restartSession(session: string) {
 
     // Kill all browsers with session user data dir
     try {
-      execSync(`pkill -f '${sessionUserDataDir}'`);
+      execSync(`pkill -f ${sessionUserDataDir}`);
     } catch (err) {
       logger.error('[SESSIONS-CHECK] Error killing browsers for ' + session);
       logger.error(err);
