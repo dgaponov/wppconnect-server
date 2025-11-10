@@ -27,6 +27,33 @@ import { startAllSessions, startSession } from './functions';
 import getAllTokens from './getAllTokens';
 import { clientsArray } from './sessionUtil';
 
+type ExecResult = {
+    output: string | undefined;
+    error: string | null;
+};
+
+const hasExecutionError = (result: ExecResult): boolean => !!result.error;
+
+const safeExec = (command: string): ExecResult => {
+    try {
+        const result = execSync(command, {stdio: 'pipe'});
+
+        return {
+            output: result.toString().trim(),
+            error: null,
+        };
+    } catch (err) {
+        const error = err as {stdout?: Buffer; stderr?: Buffer};
+        const output = error.stdout?.toString().trim();
+        const errorMessage = error.stderr?.toString().trim();
+
+        return {
+            output,
+            error: errorMessage || output || 'Неизвестная ошибка',
+        };
+    }
+};
+
 export function backupSessions(req: Request): Promise<any> {
   // eslint-disable-next-line no-async-promise-executor
   return new Promise(async (resolve, reject) => {
@@ -156,7 +183,10 @@ async function restartSession(session: string) {
 
     // Kill all browsers with session user data dir
     try {
-      execSync(`pkill -f ${sessionUserDataDir}`);
+      const result = safeExec(`pkill -f ${sessionUserDataDir}`);
+      logger.error('[SESSIONS-CHECK] Try killing browser result');
+      console.log(result);
+      logger.info(result);
     } catch (err) {
       logger.error('[SESSIONS-CHECK] Error killing browsers for ' + session);
       logger.error(err);
