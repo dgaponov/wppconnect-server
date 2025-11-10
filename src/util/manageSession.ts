@@ -197,6 +197,7 @@ async function restartSession(session: string) {
     safeExec(`rm -rf ${sessionUserDataDir}/SingletonLock`);
     safeExec(`rm -rf ${sessionUserDataDir}/SingletonCookie`);
     safeExec(`rm -rf ${sessionUserDataDir}/SingletonSocket`);
+    logger.info('[SESSIONS-CHECK] Removed browser lockfiles for ' + session);
   }
 
   await startSession(config, session, logger);
