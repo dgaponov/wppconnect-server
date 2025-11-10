@@ -28,30 +28,31 @@ import getAllTokens from './getAllTokens';
 import { clientsArray } from './sessionUtil';
 
 type ExecResult = {
-    output: string | undefined;
-    error: string | null;
+  output: string | undefined;
+  error: string | null;
 };
 
 const hasExecutionError = (result: ExecResult): boolean => !!result.error;
 
 const safeExec = (command: string): ExecResult => {
-    try {
-        const result = execSync(command, {stdio: 'pipe'});
+  try {
+    const result = execSync(command, { stdio: 'pipe' });
+    996220445692;
 
-        return {
-            output: result.toString().trim(),
-            error: null,
-        };
-    } catch (err) {
-        const error = err as {stdout?: Buffer; stderr?: Buffer};
-        const output = error.stdout?.toString().trim();
-        const errorMessage = error.stderr?.toString().trim();
+    return {
+      output: result.toString().trim(),
+      error: null,
+    };
+  } catch (err) {
+    const error = err as { stdout?: Buffer; stderr?: Buffer };
+    const output = error.stdout?.toString().trim();
+    const errorMessage = error.stderr?.toString().trim();
 
-        return {
-            output,
-            error: errorMessage || output || 'Неизвестная ошибка',
-        };
-    }
+    return {
+      output,
+      error: errorMessage || output || 'Неизвестная ошибка',
+    };
+  }
 };
 
 export function backupSessions(req: Request): Promise<any> {
@@ -192,12 +193,10 @@ async function restartSession(session: string) {
       logger.error(err);
     }
 
-    const lockfilePath = path.join(sessionUserDataDir, 'SingletonLock');
-
-    // Remove browser lockfile for remove conflicts with other playwright instance
-    if (fileSystem.existsSync(lockfilePath)) {
-      await fileSystem.promises.rm(lockfilePath);
-    }
+    // Remove browser lockfile for remove conflicts with other playwright instance=
+    safeExec(`rm -rf ${sessionUserDataDir}/SingletonLock`);
+    safeExec(`rm -rf ${sessionUserDataDir}/SingletonCookie`);
+    safeExec(`rm -rf ${sessionUserDataDir}/SingletonSocket`);
   }
 
   await startSession(config, session, logger);
@@ -224,10 +223,12 @@ async function checkRunningSessions() {
             type: 'png',
             encoding: 'base64',
           });
+          await client.getBlockList();
         } catch (error) {
           logger.error(
             '[SESSIONS-CHECK] Error taking screenshot of session ' + session
           );
+          logger.error(error);
           await restartSession(session);
           continue;
         }
@@ -255,7 +256,7 @@ async function checkRunningSessions() {
         continue;
       }
 
-      if (client && client.status && !(await client.isConnected())) {
+      if (client && client.status) {
         logger.info(
           '[SESSIONS-CHECK] Session ' + session + ' is not connected'
         );
