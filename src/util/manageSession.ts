@@ -213,6 +213,7 @@ async function checkRunningSessions() {
   );
 
   logger.info(`[SESSIONS-CHECK] Sessions: ${names.join(', ')}`);
+  let restartsCount = 0;
 
   for (const session of names) {
     try {
@@ -230,7 +231,8 @@ async function checkRunningSessions() {
             '[SESSIONS-CHECK] Error taking screenshot of session ' + session
           );
           logger.error(error);
-          await restartSession(session);
+          logger.error('[SESSIONS-CHECK] Need restart ' + session);
+          restartsCount += 1;
           continue;
         }
 
@@ -245,7 +247,7 @@ async function checkRunningSessions() {
             ' is initializing very long. Try restarting session...'
         );
 
-        await restartSession(session);
+        restartsCount += 1;
         continue;
       }
 
@@ -253,7 +255,7 @@ async function checkRunningSessions() {
         logger.info(
           '[SESSIONS-CHECK] Session ' + session + ' is not running or closed'
         );
-        await restartSession(session);
+        restartsCount += 1;
         continue;
       }
 
@@ -261,8 +263,7 @@ async function checkRunningSessions() {
         logger.info(
           '[SESSIONS-CHECK] Session ' + session + ' is not connected'
         );
-
-        await restartSession(session);
+        restartsCount += 1;
         continue;
       }
     } catch (error) {
@@ -272,7 +273,17 @@ async function checkRunningSessions() {
   }
 
   logger.info('[SESSIONS-CHECK] Completed checking running sessions');
-  scheduleCheckRunningSessions();
+  if (restartsCount) {
+    logger.info('[SESSIONS-CHECK] Need restart ' + restartsCount + ' sessions');
+    if (config.customUserDataDir) {
+      // Remove browser lockfile for remove conflicts with other playwright instance=
+      safeExec(`rm -rf ${config.customUserDataDir}/*/SingletonLock`);
+      logger.info('[SESSIONS-CHECK] Removed browser lockfiles');
+    }
+    process.exit();
+  } else {
+    scheduleCheckRunningSessions();
+  }
 }
 
 export function scheduleCheckRunningSessions() {
