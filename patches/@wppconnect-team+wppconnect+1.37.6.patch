@@ -1,0 +1,321 @@
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.d.ts b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.d.ts
+index fe0eb69..9c382e4 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.d.ts
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.d.ts
+@@ -136,4 +136,10 @@ export declare class HostLayer {
+      * @returns Build constants information
+      */
+     getBuildConstants(): Promise<string>;
++    /**
++     * Check if the account has been migrated to LID
++     * @category Host
++     * @returns true if the account has been migrated to LID, false otherwise
++     */
++    isLidMigrated(): Promise<boolean>;
+ }
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js
+index e0745d7..3d8d825 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js
+@@ -821,6 +821,21 @@ var HostLayer = /** @class */ (function () {
+             });
+         });
+     };
++    /**
++     * Check if the account has been migrated to LID
++     * @category Host
++     * @returns true if the account has been migrated to LID, false otherwise
++     */
++    HostLayer.prototype.isLidMigrated = function () {
++        return __awaiter(this, void 0, void 0, function () {
++            return __generator(this, function (_a) {
++                switch (_a.label) {
++                    case 0: return [4 /*yield*/, (0, helpers_1.evaluateAndReturn)(this.page, function () { return WPP.whatsapp.functions.isLidMigrated(); })];
++                    case 1: return [2 /*return*/, _a.sent()];
++                }
++            });
++        });
++    };
+     return HostLayer;
+ }());
+ exports.HostLayer = HostLayer;
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.d.ts b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.d.ts
+index 6253a09..34135a7 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.d.ts
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.d.ts
+@@ -420,7 +420,7 @@ export declare class SenderLayer extends ListenerLayer {
+         unreadCount: number;
+     }>;
+     /**
+-     * Sets a audio or image view once. Marks message as played
++     * Sets an audio or image view once. Marks message as played
+      * @category Chat
+      * @param msgId Message id: xxxxx@us.c
+      */
+@@ -438,7 +438,7 @@ export declare class SenderLayer extends ListenerLayer {
+      * ```
+      * @category Chat
+      * @param to Chat Id
+-     * @param duration Duration um miliseconds
++     * @param duration Duration in milliseconds
+      */
+     startTyping(to: string, duration?: number): Promise<void>;
+     /**
+@@ -451,7 +451,7 @@ export declare class SenderLayer extends ListenerLayer {
+      * Starts recording ('Recording...' state)
+      * @example
+      * ```javascript
+-     * // Keep sending recording state, use stopRecoring to finish
++     * // Keep sending recording state, use `stopRecording` to finish
+      * await client.startRecording('[number]@c.us');
+      *
+      * // Keep sending typing state for 5 seconds
+@@ -459,15 +459,22 @@ export declare class SenderLayer extends ListenerLayer {
+      * ```
+      * @category Chat
+      * @param to Chat Id
+-     * @param duration Duration um miliseconds
++     * @param duration Duration in milliseconds
+      */
+     startRecording(to: string, duration?: number): Promise<void>;
+     /**
+      * Stops recording ('Recording...' state)
++     * @deprecated please use {@link stopRecording} this function will be removed in future releases
+      * @category Chat
+      * @param to Chat Id
+      */
+     stopRecoring(to: string): Promise<void>;
++    /**
++     * Stops recording ('Recording...' state)
++     * @category Chat
++     * @param to Chat Id
++     */
++    stopRecording(to: string): Promise<void>;
+     /**
+      * Update your online presence
+      * @category Chat
+@@ -559,18 +566,18 @@ export declare class SenderLayer extends ListenerLayer {
+      * ```
+      * @category Chat
+      * @param to Chat Id
+-     * @param duration Duration um miliseconds
++     * @param duration Duration in milliseconds
+      */
+     sendReactionToMessage(msgId: string, reaction: string | false): Promise<{
+         sendMsgResult: string;
+     }>;
+     /**
+-     * Send a order message
++     * Send an order message
+      * To send (prices, tax, shipping or discount), for example: USD 12.90, send them without dots or commas, like: 12900
+      *
+      * @example
+      * ```javascript
+-     * // Send Order with a product
++     * // Send an order with a product
+      * client.sendOrderMessage('[number]@c.us', [
+      *   { type: 'product', id: '67689897878', qnt: 2 },
+      *   { type: 'product', id: '37878774457', qnt: 1 },
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.js b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.js
+index a8ada7a..235ee20 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.js
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/sender.layer.js
+@@ -1201,7 +1201,7 @@ var SenderLayer = /** @class */ (function (_super) {
+         });
+     };
+     /**
+-     * Sets a audio or image view once. Marks message as played
++     * Sets an audio or image view once. Marks message as played
+      * @category Chat
+      * @param msgId Message id: xxxxx@us.c
+      */
+@@ -1225,7 +1225,7 @@ var SenderLayer = /** @class */ (function (_super) {
+      * ```
+      * @category Chat
+      * @param to Chat Id
+-     * @param duration Duration um miliseconds
++     * @param duration Duration in milliseconds
+      */
+     SenderLayer.prototype.startTyping = function (to, duration) {
+         return __awaiter(this, void 0, void 0, function () {
+@@ -1261,7 +1261,7 @@ var SenderLayer = /** @class */ (function (_super) {
+      * Starts recording ('Recording...' state)
+      * @example
+      * ```javascript
+-     * // Keep sending recording state, use stopRecoring to finish
++     * // Keep sending recording state, use `stopRecording` to finish
+      * await client.startRecording('[number]@c.us');
+      *
+      * // Keep sending typing state for 5 seconds
+@@ -1269,7 +1269,7 @@ var SenderLayer = /** @class */ (function (_super) {
+      * ```
+      * @category Chat
+      * @param to Chat Id
+-     * @param duration Duration um miliseconds
++     * @param duration Duration in milliseconds
+      */
+     SenderLayer.prototype.startRecording = function (to, duration) {
+         return __awaiter(this, void 0, void 0, function () {
+@@ -1286,6 +1286,7 @@ var SenderLayer = /** @class */ (function (_super) {
+     };
+     /**
+      * Stops recording ('Recording...' state)
++     * @deprecated please use {@link stopRecording} this function will be removed in future releases
+      * @category Chat
+      * @param to Chat Id
+      */
+@@ -1301,6 +1302,23 @@ var SenderLayer = /** @class */ (function (_super) {
+             });
+         });
+     };
++    /**
++     * Stops recording ('Recording...' state)
++     * @category Chat
++     * @param to Chat Id
++     */
++    SenderLayer.prototype.stopRecording = function (to) {
++        return __awaiter(this, void 0, void 0, function () {
++            return __generator(this, function (_a) {
++                return [2 /*return*/, (0, helpers_1.evaluateAndReturn)(this.page, function (_a) {
++                        var to = _a.to;
++                        return WPP.chat.markIsPaused(to);
++                    }, {
++                        to: to,
++                    })];
++            });
++        });
++    };
+     /**
+      * Update your online presence
+      * @category Chat
+@@ -1507,7 +1525,7 @@ var SenderLayer = /** @class */ (function (_super) {
+      * ```
+      * @category Chat
+      * @param to Chat Id
+-     * @param duration Duration um miliseconds
++     * @param duration Duration in milliseconds
+      */
+     SenderLayer.prototype.sendReactionToMessage = function (msgId, reaction) {
+         return __awaiter(this, void 0, void 0, function () {
+@@ -1523,12 +1541,12 @@ var SenderLayer = /** @class */ (function (_super) {
+         });
+     };
+     /**
+-     * Send a order message
++     * Send an order message
+      * To send (prices, tax, shipping or discount), for example: USD 12.90, send them without dots or commas, like: 12900
+      *
+      * @example
+      * ```javascript
+-     * // Send Order with a product
++     * // Send an order with a product
+      * client.sendOrderMessage('[number]@c.us', [
+      *   { type: 'product', id: '67689897878', qnt: 2 },
+      *   { type: 'product', id: '37878774457', qnt: 1 },
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.d.ts b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.d.ts
+index 015ef19..548eb06 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.d.ts
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.d.ts
+@@ -1,6 +1,6 @@
+ export declare enum GroupNotificationType {
+     Add = "add",
+-    Inivite = "invite",
++    Invite = "invite",
+     Remove = "remove",
+     Leave = "leave",
+     Subject = "subject",
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.js b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.js
+index 30afa58..47fb594 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.js
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/group-notification-type.js
+@@ -20,7 +20,7 @@ exports.GroupNotificationType = void 0;
+ var GroupNotificationType;
+ (function (GroupNotificationType) {
+     GroupNotificationType["Add"] = "add";
+-    GroupNotificationType["Inivite"] = "invite";
++    GroupNotificationType["Invite"] = "invite";
+     GroupNotificationType["Remove"] = "remove";
+     GroupNotificationType["Leave"] = "leave";
+     GroupNotificationType["Subject"] = "subject";
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.d.ts b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.d.ts
+index c47f328..2c3cd4d 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.d.ts
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.d.ts
+@@ -11,9 +11,9 @@ export declare enum StatusFind {
+      */
+     browserClose = "browserClose",
+     /**
+-     * Client has disconnected in to mobile.
++     * Client has disconnected to the mobile device.
+      */
+-    desconnectedMobile = "desconnectedMobile",
++    disconnectedMobile = "disconnectedMobile",
+     /**
+      * Client is ready to send and receive messages.
+      */
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.js b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.js
+index a793239..c35235e 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.js
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/model/enum/status-find.js
+@@ -31,9 +31,9 @@ var StatusFind;
+      */
+     StatusFind["browserClose"] = "browserClose";
+     /**
+-     * Client has disconnected in to mobile.
++     * Client has disconnected to the mobile device.
+      */
+-    StatusFind["desconnectedMobile"] = "desconnectedMobile";
++    StatusFind["disconnectedMobile"] = "disconnectedMobile";
+     /**
+      * Client is ready to send and receive messages.
+      */
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/model/message.d.ts b/node_modules/@wppconnect-team/wppconnect/dist/api/model/message.d.ts
+index fd30612..8e68cbd 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/model/message.d.ts
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/model/message.d.ts
+@@ -1,7 +1,7 @@
+-import { Wid } from './wid';
+ import { Chat } from './chat';
+ import { Contact } from './contact';
+ import { MessageType } from './enum';
++import { Wid } from './wid';
+ /** available during the `onMessage` event */
+ export interface Message {
+     id: string;
+@@ -98,6 +98,23 @@ export interface Message {
+     recipients?: string[];
+     /** exists for image and video types {@link GroupNotificationType} */
+     caption?: string;
++    ctwaContext?: {
++        conversionSource?: string;
++        conversionData?: object;
++        sourceUrl?: string;
++        description?: string;
++        title?: string;
++        thumbnail?: string;
++        thumbnailUrl?: string;
++        mediaType?: number;
++        adContextPreviewDismissed?: boolean;
++        sourceApp?: string;
++        greetingMessageBody?: string;
++        automatedGreetingMessageShown?: boolean;
++        sourceId?: string;
++        originalImageUrl?: string;
++        mediaUrl?: string;
++    };
+ }
+ export interface MediaData {
+     type: string;
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/whatsapp.js b/node_modules/@wppconnect-team/wppconnect/dist/api/whatsapp.js
+index 7a7f2ca..3611a78 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/whatsapp.js
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/whatsapp.js
+@@ -219,7 +219,7 @@ var Whatsapp = /** @class */ (function (_super) {
+                                 return __generator(this, function (_a) {
+                                     if (this.statusFind) {
+                                         try {
+-                                            this.statusFind('desconnectedMobile', session);
++                                            this.statusFind('disconnectedMobile', session);
+                                         }
+                                         catch (error) { }
+                                     }
