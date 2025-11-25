@@ -35,7 +35,7 @@ import {
   startAllSessions,
 } from './util/functions';
 import { createLogger } from './util/logger';
-import { scheduleCheckRunningSessions } from './util/manageSession';
+//import { scheduleCheckRunningSessions } from './util/manageSession';
 
 //require('dotenv').config();
 
@@ -125,7 +125,7 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     logger.info(`WPPConnect-Server version: ${version}`);
 
     if (serverOptions.startAllSession) startAllSessions(serverOptions, logger);
-    scheduleCheckRunningSessions();
+    //scheduleCheckRunningSessions();
   });
 
   if (config.log.level === 'error' || config.log.level === 'warn') {
