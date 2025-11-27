@@ -204,6 +204,27 @@ async function restartSession(session: string) {
   await sleep(10000);
 }
 
+async function safeRestartSessions() {
+  const names = await getAllTokens();
+
+  // close all sessions
+  for (const session of names) {
+    const client = clientsArray[session];
+    try {
+      if (client?.status) {
+        logger.info('Stopping session: ' + session);
+        await client.close();
+      }
+      delete clientsArray[session];
+    } catch (error) {
+      logger.error('Not was possible stop session: ' + session);
+    }
+  }
+
+  // Kill process
+  process.exit();
+}
+
 async function checkRunningSessions() {
   logger.info('[SESSIONS-CHECK] Checking running sessions...');
   const names = await getAllTokens();
@@ -275,17 +296,15 @@ async function checkRunningSessions() {
   logger.info('[SESSIONS-CHECK] Completed checking running sessions');
   if (restartsCount) {
     logger.info('[SESSIONS-CHECK] Need restart ' + restartsCount + ' sessions');
-    if (config.customUserDataDir) {
-      // Remove browser lockfile for remove conflicts with other playwright instance=
-      safeExec(`rm -rf ${config.customUserDataDir}/*/SingletonLock`);
-      logger.info('[SESSIONS-CHECK] Removed browser lockfiles');
-    }
-    process.exit();
+    await safeRestartSessions();
   } else {
     scheduleCheckRunningSessions();
   }
 }
 
 export function scheduleCheckRunningSessions() {
-  checkRunningSessionsTimeout = setTimeout(checkRunningSessions, 1000 * 60 * 5);
+  checkRunningSessionsTimeout = setTimeout(
+    checkRunningSessions,
+    1000 * 60 * 10
+  );
 }
