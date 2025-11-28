@@ -31,7 +31,6 @@ export class SessionBackupUtil {
       'IndexedDB',
       'Local Storage',
     ]; /* => Required Files & Dirs in WWebJS to restore session */
-    this.rmMaxRetries = 4;
     this.clientCreateOptions = clientCreateOptions;
   }
 
