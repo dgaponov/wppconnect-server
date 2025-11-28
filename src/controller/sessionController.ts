@@ -22,7 +22,9 @@ import { Logger } from 'winston';
 
 import { version } from '../../package.json';
 import config from '../config';
-import CreateSessionUtil from '../util/createSessionUtil';
+import CreateSessionUtil, {
+  canCreateNewInstance,
+} from '../util/createSessionUtil';
 import { callWebHook, contactToArray } from '../util/functions';
 import getAllTokens from '../util/getAllTokens';
 import { clientsArray, deleteSessionOnArray } from '../util/sessionUtil';
@@ -233,6 +235,19 @@ export async function startSession(req: Request, res: Response): Promise<any> {
       }
      }
    */
+
+  if (!(await canCreateNewInstance())) {
+    req.logger.error(
+      'Cannot create new instance. Max instances created on this server!'
+    );
+    return await res.status(500).json({
+      status: false,
+      message:
+        'Cannot create new instance. Max instances created on this server!',
+    });
+    return;
+  }
+
   const session = req.session;
   const { waitQrCode = false } = req.body;
 
