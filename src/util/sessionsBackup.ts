@@ -116,6 +116,7 @@ export class SessionBackupUtil {
         const dirElement = path.join(dir, element);
         await this.removePathSilently(dirElement);
       }
+      await this.removeSingletonFiles(dir);
     }
   }
 
