@@ -198,7 +198,7 @@ export default class CreateSessionUtil {
         dataPath: req.serverOptions.customUserDataDir,
         clientCreateOptions,
       });
-      // await sessionBackupUtil.beforeBrowserInitialized();
+      await sessionBackupUtil.beforeBrowserInitialized();
 
       const wppClient = await create(clientCreateOptions);
 
