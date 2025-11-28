@@ -199,12 +199,14 @@ export default class CreateSessionUtil {
         dataPath: req.serverOptions.customUserDataDir,
         clientCreateOptions,
       });
-      await sessionBackupUtil.beforeBrowserInitialized();
+      // await sessionBackupUtil.beforeBrowserInitialized();
 
       const wppClient = await create(clientCreateOptions);
 
       client = clientsArray[session] = Object.assign(wppClient, client);
       await this.start(req, client);
+
+      await client.isConnected();
       await sessionBackupUtil?.afterAuthReady();
 
       if (req.serverOptions.webhook.onParticipantsChanged) {
