@@ -43,7 +43,7 @@ function getMaxInstancesCount() {
   return maxInstancesCount;
 }
 
-async function canCreateNewInstance() {
+export async function canCreateNewInstance() {
   const activeSessions = await getAllTokens();
   return activeSessions.length < getMaxInstancesCount();
 }
@@ -65,13 +65,6 @@ export default class CreateSessionUtil {
     res?: any
   ) {
     let sessionBackupUtil: SessionBackupUtil | undefined;
-
-    if (!(await canCreateNewInstance())) {
-      req.logger.error(
-        'Cannot create new instance. Max instances created on this server!'
-      );
-      return;
-    }
 
     try {
       let client = this.getClient(session) as any;
