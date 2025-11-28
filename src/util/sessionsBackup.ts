@@ -9,7 +9,6 @@ export class SessionBackupUtil {
   private backupSync: NodeJS.Timeout | undefined;
   private backupSyncIntervalMs: number;
   private requiredDirs: string[];
-  private rmMaxRetries: number;
   private userDataDir: string;
   private clientCreateOptions: CreateOptions;
 
@@ -38,6 +37,7 @@ export class SessionBackupUtil {
 
   async beforeBrowserInitialized() {
     await this.extractBackupSession();
+    await this.removeSingletonFiles(this.userDataDir);
 
     this.clientCreateOptions.puppeteerOptions = {
       ...this.clientCreateOptions.puppeteerOptions,
@@ -78,15 +78,14 @@ export class SessionBackupUtil {
     const sessionExists = await this.isValidPath(this.userDataDir);
     const backupExists = await this.isValidPath(this.backupPath);
 
+    if (!sessionExists) {
+      fs.mkdirSync(this.userDataDir, { recursive: true });
+      return;
+    }
+
     if (backupExists) {
       if (sessionExists) {
-        await fs.promises
-          .rm(this.userDataDir, {
-            recursive: true,
-            force: true,
-            maxRetries: this.rmMaxRetries,
-          })
-          .catch(() => {});
+        await this.removePathSilently(this.userDataDir);
       }
 
       await fs.promises
@@ -100,13 +99,7 @@ export class SessionBackupUtil {
   async deleteBackupSession() {
     const backupExists = await this.isValidPath(this.backupPath);
     if (backupExists) {
-      await fs.promises
-        .rm(this.backupPath, {
-          recursive: true,
-          force: true,
-          maxRetries: this.rmMaxRetries,
-        })
-        .catch(() => {});
+      await this.removePathSilently(this.backupPath);
     }
   }
 
@@ -118,21 +111,28 @@ export class SessionBackupUtil {
     for (const dir of sessionDirs) {
       const sessionFiles = await fs.promises.readdir(dir);
       for (const element of sessionFiles) {
-        if (!this.requiredDirs.includes(element)) {
-          const dirElement = path.join(dir, element);
-          const stats = await fs.promises.lstat(dirElement);
+        if (this.requiredDirs.includes(element)) {
+          continue;
+        }
+        const dirElement = path.join(dir, element);
+        await this.removePathSilently(dirElement);
+      }
+    }
+  }
 
-          if (stats.isDirectory()) {
-            await fs.promises
-              .rm(dirElement, {
-                recursive: true,
-                force: true,
-                maxRetries: this.rmMaxRetries,
-              })
-              .catch(() => {});
-          } else {
-            await fs.promises.unlink(dirElement).catch(() => {});
-          }
+  /**
+   * Find in direction Singleton* files and try to remove it
+   * Fix for SingletonLock and other files
+   */
+  async removeSingletonFiles(dir: string) {
+    const files = await fs.promises.readdir(dir);
+    for (const file of files) {
+      if (file.startsWith('Singleton')) {
+        const filePath = path.join(dir, file);
+        try {
+          await this.removePathSilently(filePath);
+        } catch (err) {
+          console.error(err, `Error deleting: ${filePath}`);
         }
       }
     }
@@ -149,5 +149,22 @@ export class SessionBackupUtil {
 
   async delay(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async removePathSilently(path: string) {
+    const exists = await this.isValidPath(path);
+    if (!exists) {
+      return;
+    }
+
+    try {
+      await fs.promises.rm(path, {
+        maxRetries: 4,
+        recursive: true,
+        force: true,
+      });
+    } catch (err) {
+      console.error(err, `Error deleting: ${path}`);
+    }
   }
 }
