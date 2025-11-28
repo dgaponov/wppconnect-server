@@ -13,10 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { create, SocketState, StatusFind } from '@wppconnect-team/wppconnect';
+import {
+  create,
+  CreateOptions,
+  SocketState,
+  StatusFind,
+} from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import * as proxyChain from 'proxy-chain';
 
 import { WhatsAppServer } from '../types/WhatsAppServer';
@@ -24,6 +30,24 @@ import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
+import getAllTokens from './getAllTokens';
+import { SessionBackupUtil } from './sessionsBackup';
+
+function getMaxInstancesCount() {
+  const total = os.totalmem();
+
+  const REQUIRED_WHATSAPP_INSTANCE_MEMORY_IN_MB = 650;
+  const maxInstancesCount = Math.round(
+    total / 1024 / 1024 / REQUIRED_WHATSAPP_INSTANCE_MEMORY_IN_MB
+  );
+
+  return maxInstancesCount;
+}
+
+async function canCreateNewInstance() {
+  const activeSessions = await getAllTokens();
+  return activeSessions.length < getMaxInstancesCount();
+}
 
 export default class CreateSessionUtil {
   startChatWootClient(client: any) {
@@ -41,6 +65,15 @@ export default class CreateSessionUtil {
     session: string,
     res?: any
   ) {
+    let sessionBackupUtil: SessionBackupUtil | undefined;
+
+    if (!(await canCreateNewInstance())) {
+      req.logger.error(
+        'Cannot create new instance. Max instances created on this server!'
+      );
+      return;
+    }
+
     try {
       let client = this.getClient(session) as any;
       if (client.status != null && client.status !== 'CLOSED') return;
@@ -75,107 +108,111 @@ export default class CreateSessionUtil {
         browserArgs.push(`--proxy-server=${newProxyUrl}`);
       }
 
-      const wppClient = await create(
-        Object.assign(
-          {},
-          { tokenStore: myTokenStore },
-          client.config.proxy
-            ? {
-                proxy: {
-                  url: client.config.proxy?.url,
-                  username: client.config.proxy?.username,
-                  password: client.config.proxy?.password,
-                },
-              }
-            : {},
-          req.serverOptions.createOptions,
-          {
-            browserArgs: [
-              ...browserArgs,
-              ...(req.serverOptions.createOptions?.browserArgs || []),
-            ],
-            session: session,
-            phoneNumber: client.config.phone ?? null,
-            deviceName:
-              client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
-                ? client.config?.deviceName ||
-                  req.serverOptions.deviceName ||
-                  'WppConnect'
-                : undefined,
-            poweredBy:
-              client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
-                ? client.config?.poweredBy ||
-                  req.serverOptions.poweredBy ||
-                  'WPPConnect-Server'
-                : undefined,
-            catchLinkCode: (code: string) => {
-              this.exportPhoneCode(req, client.config.phone, code, client, res);
-            },
-            catchQR: (
-              base64Qr: any,
-              asciiQR: any,
-              attempt: any,
-              urlCode: string
-            ) => {
-              this.exportQR(req, base64Qr, urlCode, client, res);
-            },
-            onLoadingScreen: (percent: string, message: string) => {
-              req.logger.info(`[${session}] ${percent}% - ${message}`);
-            },
-            statusFind: async (statusFind: StatusFind) => {
-              try {
-                eventEmitter.emit(
-                  `status-${client.session}`,
-                  client,
-                  statusFind
-                );
-                if (
-                  statusFind === StatusFind.autocloseCalled ||
-                  statusFind === StatusFind.disconnectedMobile ||
-                  statusFind === StatusFind.qrReadError
-                ) {
-                  client.status = 'CLOSED';
-                  client.qrcode = null;
+      const clientCreateOptions: CreateOptions = Object.assign(
+        {},
+        { tokenStore: myTokenStore },
+        client.config.proxy
+          ? {
+              proxy: {
+                url: client.config.proxy?.url,
+                username: client.config.proxy?.username,
+                password: client.config.proxy?.password,
+              },
+            }
+          : {},
+        req.serverOptions.createOptions,
+        {
+          browserArgs: [
+            ...browserArgs,
+            ...(req.serverOptions.createOptions?.browserArgs || []),
+          ],
+          session: session,
+          phoneNumber: client.config.phone ?? null,
+          deviceName:
+            client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
+              ? client.config?.deviceName ||
+                req.serverOptions.deviceName ||
+                'WppConnect'
+              : undefined,
+          poweredBy:
+            client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
+              ? client.config?.poweredBy ||
+                req.serverOptions.poweredBy ||
+                'WPPConnect-Server'
+              : undefined,
+          catchLinkCode: (code: string) => {
+            this.exportPhoneCode(req, client.config.phone, code, client, res);
+          },
+          catchQR: (
+            base64Qr: any,
+            asciiQR: any,
+            attempt: any,
+            urlCode: string
+          ) => {
+            this.exportQR(req, base64Qr, urlCode, client, res);
+          },
+          onLoadingScreen: (percent: string, message: string) => {
+            req.logger.info(`[${session}] ${percent}% - ${message}`);
+          },
+          statusFind: async (statusFind: StatusFind) => {
+            try {
+              eventEmitter.emit(`status-${client.session}`, client, statusFind);
+              if (
+                statusFind === StatusFind.autocloseCalled ||
+                statusFind === StatusFind.disconnectedMobile ||
+                statusFind === StatusFind.qrReadError
+              ) {
+                client.status = 'CLOSED';
+                client.qrcode = null;
 
-                  try {
-                    await client.close?.();
-                  } catch (_error) {
-                    req.logger.error(
-                      '[${session}] Error closing session ' + session
-                    );
-                  }
-
-                  clientsArray[session] = undefined;
-
-                  // remove session data if qr read error
-                  if (statusFind === 'qrReadError') {
-                    const pathToken = path.join(
-                      __dirname + `../../../tokens/${session}.data.json`
-                    );
-                    if (fs.existsSync(pathToken)) {
-                      await fs.promises.rm(pathToken);
-                    }
-                    req.logger.info(
-                      `[${session}] Removed session json and browser data`
-                    );
-                  }
+                try {
+                  await client.close?.();
+                } catch (_error) {
+                  req.logger.error(
+                    '[${session}] Error closing session ' + session
+                  );
                 }
-                callWebHook(client, req, 'status-find', {
-                  status: statusFind,
-                  session: client.session,
-                });
-                req.logger.info(statusFind + '\n\n');
-              } catch (error) {
-                req.logger.info(`[${session}] Error finding status`);
-                req.logger.error(error);
+
+                clientsArray[session] = undefined;
+
+                // remove session data if qr read error
+                if (statusFind === StatusFind.qrReadError) {
+                  const pathToken = path.join(
+                    __dirname + `../../../tokens/${session}.data.json`
+                  );
+                  if (fs.existsSync(pathToken)) {
+                    await fs.promises.rm(pathToken);
+                  }
+                  req.logger.info(
+                    `[${session}] Removed session json and browser data`
+                  );
+                }
               }
-            },
-          }
-        )
+              callWebHook(client, req, 'status-find', {
+                status: statusFind.toString(),
+                session: client.session,
+              });
+              req.logger.info(statusFind.toString() + '\n\n');
+            } catch (error) {
+              req.logger.info(`[${session}] Error finding status`);
+              req.logger.error(error);
+            }
+          },
+        }
       );
+
+      sessionBackupUtil = new SessionBackupUtil({
+        clientId: session,
+        dataPath: req.serverOptions.customUserDataDir,
+        clientCreateOptions,
+      });
+      await sessionBackupUtil.beforeBrowserInitialized();
+
+      const wppClient = await create(clientCreateOptions);
 
       client = clientsArray[session] = Object.assign(wppClient, client);
       await this.start(req, client);
+      await sessionBackupUtil?.afterAuthReady();
 
       if (req.serverOptions.webhook.onParticipantsChanged) {
         await this.onParticipantsChanged(req, client);
@@ -203,6 +240,7 @@ export default class CreateSessionUtil {
         const client = this.getClient(session) as any;
         client.status = 'CLOSED';
         client.close();
+        sessionBackupUtil?.disconnect();
       }
     }
   }
