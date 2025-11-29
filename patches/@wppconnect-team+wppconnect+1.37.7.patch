@@ -1,0 +1,74 @@
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js b/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js
+index c52c86c..ecbfa86 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js
++++ b/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js
+@@ -327,6 +327,7 @@ function onLoadingScreen(page, onLoadingScreenCallBack) {
+ function injectApi(page, onLoadingScreenCallBack) {
+     return __awaiter(this, void 0, void 0, function () {
+         var injected;
++        var _this = this;
+         return __generator(this, function (_a) {
+             switch (_a.label) {
+                 case 0: return [4 /*yield*/, page
+@@ -341,24 +342,48 @@ function injectApi(page, onLoadingScreenCallBack) {
+                     if (injected) {
+                         return [2 /*return*/];
+                     }
++                    return [4 /*yield*/, page.evaluate(function () { return __awaiter(_this, void 0, void 0, function () {
++                            var targetABFlag, ABPrefetchLoadablesExists, isUsingABPrefetchLoadables;
++                            return __generator(this, function (_a) {
++                                switch (_a.label) {
++                                    case 0:
++                                        targetABFlag = 'wa_web_disable_prefetch_loadables';
++                                        return [4 /*yield*/, window.require('WAWebABPropsConfigs').ABPropConfigs[targetABFlag]];
++                                    case 1:
++                                        ABPrefetchLoadablesExists = !!(_a.sent());
++                                        if (!ABPrefetchLoadablesExists) return [3 /*break*/, 4];
++                                        return [4 /*yield*/, window.require('WAWebABProps').getABPropConfigValue(targetABFlag)];
++                                    case 2:
++                                        isUsingABPrefetchLoadables = _a.sent();
++                                        if (!isUsingABPrefetchLoadables) return [3 /*break*/, 4];
++                                        return [4 /*yield*/, window.require('WAWebPrefetchLoadables')()];
++                                    case 3:
++                                        _a.sent();
++                                        _a.label = 4;
++                                    case 4: return [2 /*return*/];
++                                }
++                            });
++                        }); })];
++                case 2:
++                    _a.sent();
+                     return [4 /*yield*/, page.addScriptTag({
+                             path: require.resolve('@wppconnect/wa-js'),
+                         })];
+-                case 2:
++                case 3:
+                     _a.sent();
+                     return [4 /*yield*/, page.evaluate(function () {
+                             WPP.chat.defaultSendMessageOptions.createChat = true;
+                             WPP.conn.setKeepAlive(true);
+                         })];
+-                case 3:
++                case 4:
+                     _a.sent();
+                     return [4 /*yield*/, page.addScriptTag({
+                             path: require.resolve(path.join(__dirname, '../../dist/lib/wapi', 'wapi.js')),
+                         })];
+-                case 4:
++                case 5:
+                     _a.sent();
+                     return [4 /*yield*/, onLoadingScreen(page, onLoadingScreenCallBack)];
+-                case 5:
++                case 6:
+                     _a.sent();
+                     // Make sure WAPI is initialized
+                     return [4 /*yield*/, page
+@@ -368,7 +393,7 @@ function injectApi(page, onLoadingScreenCallBack) {
+                                 window.WPP.isReady);
+                         })
+                             .catch(function () { return false; })];
+-                case 6:
++                case 7:
+                     // Make sure WAPI is initialized
+                     _a.sent();
+                     return [2 /*return*/];
