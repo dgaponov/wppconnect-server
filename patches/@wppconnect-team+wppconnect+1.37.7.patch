@@ -1,5 +1,5 @@
 diff --git a/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js b/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js
-index c52c86c..880cd85 100644
+index c52c86c..f825ca0 100644
 --- a/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js
 +++ b/node_modules/@wppconnect-team/wppconnect/dist/controllers/browser.js
 @@ -126,6 +126,7 @@ var puppeteer_config_1 = require("../config/puppeteer.config");
@@ -22,7 +22,7 @@ index c52c86c..880cd85 100644
                      if (injected) {
                          return [2 /*return*/];
                      }
-+                    return [4 /*yield*/, (0, helpers_1.evaluateAndReturn)(this.page, function () { return __awaiter(_this, void 0, void 0, function () {
++                    return [4 /*yield*/, (0, helpers_1.evaluateAndReturn)(page, function () { return __awaiter(_this, void 0, void 0, function () {
 +                            var targetABFlag, ABPrefetchLoadablesExists, isUsingABPrefetchLoadables;
 +                            return __generator(this, function (_a) {
 +                                switch (_a.label) {
