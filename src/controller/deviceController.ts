@@ -388,11 +388,17 @@ export async function getChatById(req: Request, res: Response) {
 
   try {
     let result = {} as Chat;
-    if (isGroup) {
-      result = await req.client.getChatById(`${phone}@g.us`);
-    } else {
-      result = await req.client.getChatById(`${phone}@c.us`);
+    let correctPhone = phone;
+
+    if (!correctPhone.includes('@')) {
+      if (isGroup) {
+        correctPhone = `${correctPhone}@g.us`;
+      } else {
+        correctPhone = `${correctPhone}@c.us`;
+      }
     }
+
+    result = await req.client.getChatById(correctPhone);
 
     res.status(200).json(result);
   } catch (e) {
