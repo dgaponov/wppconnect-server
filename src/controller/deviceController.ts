@@ -398,9 +398,20 @@ export async function getChatById(req: Request, res: Response) {
       }
     }
 
-    result = await req.client.getChatById(correctPhone);
+    let lidEntry = {};
 
-    res.status(200).json(result);
+    try {
+      result = await req.client.getChatById(correctPhone);
+    } catch (_err) {}
+
+    try {
+      lidEntry = await req.client.getPnLidEntry(correctPhone);
+    } catch (_err) {}
+
+    res.status(200).json({
+      chat: result,
+      lidEntry,
+    });
   } catch (e) {
     req.logger.error(e);
     res.status(500).json({
