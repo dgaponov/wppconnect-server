@@ -17,6 +17,7 @@ import {
   create,
   CreateOptions,
   SocketState,
+  Wid,
   StatusFind,
 } from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
@@ -47,6 +48,26 @@ function getMaxInstancesCount() {
 export async function canCreateNewInstance() {
   const activeSessions = await getAllTokens();
   return activeSessions.length < getMaxInstancesCount();
+}
+
+async function getLidEntry(client: WhatsAppServer, targetLid: string) {
+  let lidEntry = client.lidEntryCache?.[targetLid];
+  if (!lidEntry) {
+    try {
+      lidEntry = await client.getPnLidEntry(targetLid);
+      client.lidEntryCache = {
+        ...client.lidEntryCache,
+        [targetLid]: lidEntry,
+      };
+    } catch (_err) {}
+  }
+  return lidEntry;
+}
+
+function isLidId(id: string | Wid) {
+  return typeof id === 'string'
+    ? id.includes('@lid')
+    : id._serialized.includes('@lid');
 }
 
 export default class CreateSessionUtil {
@@ -363,8 +384,25 @@ export default class CreateSessionUtil {
   }
 
   async listenMessages(client: WhatsAppServer, req: Request) {
-    await client.onAnyMessage(async (message: any) => {
-      message.session = client.session;
+    await client.onAnyMessage(async (message) => {
+      (message as any).session = client.session;
+
+      if (isLidId(message.chatId)) {
+        const targetLid =
+          typeof message.chatId === 'string'
+            ? message.chatId
+            : message.chatId._serialized;
+
+        const lidEntry = await getLidEntry(client, targetLid);
+        (message as any).chatEntry = lidEntry;
+      }
+
+      if (isLidId(message.sender.id)) {
+        const targetLid = message.sender.id;
+        const lidEntry = await getLidEntry(client, targetLid);
+        (message.sender as any).lidEntry = lidEntry;
+      }
+
       if (
         req.serverOptions?.websocket?.autoDownload ||
         req.serverOptions?.webhook?.autoDownload
@@ -395,6 +433,10 @@ export default class CreateSessionUtil {
     });
 
     await client.onIncomingCall(async (call) => {
+      if (isLidId(call.peerJid)) {
+        const lidEntry = await getLidEntry(client, call.peerJid);
+        (call as any).peerEntry = lidEntry;
+      }
       req.io.emit('incomingcall', call);
       callWebHook(client, req, 'incomingcall', call);
     });
