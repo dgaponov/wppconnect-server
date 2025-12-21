@@ -24,42 +24,8 @@ export default async function statusConnection(
   next: NextFunction
 ) {
   try {
-    const numbers: any = [];
     if (req.client && req.client.isConnected) {
       await req.client.isConnected();
-
-      const localArr = contactToArray(
-        req.body.phone || [],
-        req.body.isGroup,
-        req.body.isNewsletter,
-        req.body.isLid
-      );
-      let index = 0;
-      for (const contact of localArr) {
-        if (req.body.isGroup || req.body.isNewsletter) {
-          localArr[index] = contact;
-        } else if (numbers.indexOf(contact) < 0) {
-          console.log(contact);
-          const profile: any = await req.client
-            .checkNumberStatus(contact)
-            .catch((error) => console.log(error));
-          if (!profile?.numberExists) {
-            const num = (contact as any).split('@')[0];
-            res.status(400).json({
-              response: null,
-              status: 'Connected',
-              message: `O número ${num} não existe.`,
-            });
-          } else {
-            if ((numbers as any).indexOf(profile.id._serialized) < 0) {
-              (numbers as any).push(profile.id._serialized);
-            }
-            (localArr as any)[index] = profile.id._serialized;
-          }
-        }
-        index++;
-      }
-      req.body.phone = localArr;
     } else {
       res.status(404).json({
         response: null,
