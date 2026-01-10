@@ -17,22 +17,22 @@ import {
   create,
   CreateOptions,
   SocketState,
-  Wid,
   StatusFind,
+  Wid,
 } from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
 import fs from 'fs';
-import path from 'path';
 import os from 'os';
+import path from 'path';
 import * as proxyChain from 'proxy-chain';
 
 import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
-import { clientsArray, eventEmitter } from './sessionUtil';
-import Factory from './tokenStore/factory';
 import getAllTokens from './getAllTokens';
 import { SessionBackupUtil } from './sessionsBackup';
+import { clientsArray, eventEmitter } from './sessionUtil';
+import Factory from './tokenStore/factory';
 
 function getMaxInstancesCount() {
   const total = os.totalmem();
@@ -229,6 +229,7 @@ export default class CreateSessionUtil {
 
       await client.isConnected();
       await sessionBackupUtil?.afterAuthReady();
+      startHelper(client, req);
 
       if (req.serverOptions.webhook.onParticipantsChanged) {
         await this.onParticipantsChanged(req, client);
