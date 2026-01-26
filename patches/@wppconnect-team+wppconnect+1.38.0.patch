@@ -1,0 +1,29 @@
+diff --git a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js
+index c9d7496..cabf248 100644
+--- a/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js
++++ b/node_modules/@wppconnect-team/wppconnect/dist/api/layers/host.layer.js
+@@ -101,6 +101,24 @@ var HostLayer = /** @class */ (function () {
+         return __awaiter(this, void 0, void 0, function () {
+             var _this = this;
+             return __generator(this, function (_a) {
++                this.page.on('error', function (error) {
++                    _this.log('error', 'Page error', { type: 'page', error: error.message });
++                });
++                this.page.on('console', function (msg) { return __awaiter(_this, void 0, void 0, function () {
++                    var type, text, args;
++                    return __generator(this, function (_a) {
++                        switch (_a.label) {
++                            case 0:
++                                type = msg.type();
++                                text = msg.text();
++                                return [4 /*yield*/, Promise.all(msg.args().map(function (arg) { return arg.jsonValue().catch(function () { return '[unserializable]'; }); }))];
++                            case 1:
++                                args = _a.sent();
++                                this.log('info', "CONSOLE [".concat(type, "]: ").concat(text, " ").concat(args));
++                                return [2 /*return*/];
++                        }
++                    });
++                }); });
+                 this.page.on('close', function () {
+                     _this.cancelAutoClose();
+                     _this.log('verbose', 'Page Closed', { type: 'page' });
