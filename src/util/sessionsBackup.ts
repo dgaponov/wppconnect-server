@@ -1,8 +1,22 @@
+import { CreateOptions } from '@wppconnect-team/wppconnect';
 import fs from 'fs';
 import path from 'path';
-import { CreateOptions } from '@wppconnect-team/wppconnect';
 
 export class SessionBackupUtil {
+  /**
+   * Chromium cache/resource dirs — not needed for session restoration.
+   * Excluding them from the copy avoids the ENOTEMPTY errors on cleanup
+   * and skips gigabytes of disposable data.
+   */
+  private static readonly SKIP_DIRS = new Set<string>([
+    'Cache',
+    'Code Cache',
+    'GPUCache',
+    'Service Worker',
+    'GrShaderCache',
+    'ShaderCache',
+  ]);
+
   private clientId: string;
   private dataPath: string;
   private backupPath: string;
@@ -57,7 +71,7 @@ export class SessionBackupUtil {
       ); /* Initial delay sync required for session to be stable enough to recover */
       await this.storeRemoteSession();
     }
-    var self = this;
+    const self = this;
     this.backupSync = setInterval(async function () {
       await self.storeRemoteSession();
     }, this.backupSyncIntervalMs);
@@ -67,7 +81,10 @@ export class SessionBackupUtil {
     const pathExists = await this.isValidPath(this.userDataDir);
     if (pathExists) {
       await fs.promises
-        .cp(this.userDataDir as string, this.backupPath, { recursive: true })
+        .cp(this.userDataDir as string, this.backupPath, {
+          recursive: true,
+          filter: (src) => !SessionBackupUtil.SKIP_DIRS.has(path.basename(src)),
+        })
         .catch(() => {});
       await this.deleteBackupMetadata();
     }
