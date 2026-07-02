@@ -177,6 +177,9 @@ const RESTART_PACING_MS = 10000;
 // case we do nothing this pass and wait for the next tick.
 const MAX_UNHEALTHY_FRACTION = 0.5;
 const MIN_SESSIONS_FOR_FRACTION_GUARD = 4;
+// Statuses that mean "mid-lifecycle" — never auto-restart these, it would abort
+// an in-progress QR/phone-code linking (and could end in qrReadError).
+const SKIP_STATUSES = new Set(['QRCODE', 'PHONECODE', 'INITIALIZING']);
 
 let checkRunningSessionsTimeout: NodeJS.Timeout | null = null;
 // Single-flight guard: never let two sweeps run concurrently (they would race
@@ -288,63 +291,83 @@ async function checkRunningSessions() {
       `[SESSIONS-CHECK] Checking ${names.length} sessions: ${names.join(', ')}`
     );
 
-    // Pass 1 — probe only, mutate nothing. Only CONNECTED sessions are
-    // candidates: QR / PHONECODE / INITIALIZING sessions are mid-lifecycle, and
-    // restarting them aborts linking and can end in qrReadError → token deleted.
-    let probed = 0;
-    const unhealthy: string[] = [];
+    // Pass 1 — categorize, mutate nothing.
+    //  • CONNECTED        → probe with a screenshot; a dead/wedged page fails it.
+    //  • CLOSED / none    → not running (e.g. browser launch timed out at boot);
+    //                       should simply be (re)started.
+    //  • QR/PHONECODE/INIT→ mid-lifecycle; restarting aborts linking, leave alone.
+    let probedConnected = 0;
+    const probeFailed: string[] = []; // CONNECTED but page dead — guarded below
+    const notRunning: string[] = []; // CLOSED / none — always safe to (re)start
 
     for (const session of names) {
       const client = clientsArray[session];
+      const status = client?.status ?? 'NONE';
 
-      if (!client || client.status !== 'CONNECTED') {
+      if (client && status === 'CONNECTED') {
+        probedConnected++;
+        try {
+          await withTimeout(
+            (client as any).waPage?.screenshot({
+              type: 'png',
+              encoding: 'base64',
+            }),
+            SCREENSHOT_TIMEOUT_MS,
+            `screenshot ${session}`
+          );
+          logger.info(`[SESSIONS-CHECK] ${session} healthy`);
+        } catch (error) {
+          logger.error(
+            `[SESSIONS-CHECK] Health probe failed for ${session} — ` +
+              `browser likely dead/wedged: ${error}`
+          );
+          probeFailed.push(session);
+        }
+        continue;
+      }
+
+      if (SKIP_STATUSES.has(status)) {
         logger.info(
-          `[SESSIONS-CHECK] Skipping ${session} (status=${
-            client?.status ?? 'none'
-          })`
+          `[SESSIONS-CHECK] Skipping ${session} (status=${status}) — mid-lifecycle`
         );
         continue;
       }
 
-      probed++;
-      try {
-        await withTimeout(
-          client.waPage?.screenshot({ type: 'png', encoding: 'base64' }),
-          SCREENSHOT_TIMEOUT_MS,
-          `screenshot ${session}`
-        );
-        logger.info(`[SESSIONS-CHECK] ${session} healthy`);
-      } catch (error) {
-        logger.error(
-          `[SESSIONS-CHECK] Health probe failed for ${session} — ` +
-            `browser likely dead/wedged: ${error}`
-        );
-        unhealthy.push(session);
-      }
+      // CLOSED / NONE / anything else — needs to be (re)started.
+      notRunning.push(session);
     }
 
-    // Systemic-blip guard — see MAX_UNHEALTHY_FRACTION above.
+    // Revive not-running sessions unconditionally (paced). This is what heals a
+    // startup thundering-herd: browsers that timed out launching at boot come up
+    // one at a time here instead of all at once.
+    const toRestart = [...notRunning];
+
+    // Systemic-blip guard applies ONLY to probe failures: if a large fraction of
+    // CONNECTED sessions fail the probe at once it's almost certainly a host-wide
+    // spike, not real per-session death — skip THOSE restarts (but still revive
+    // the genuinely not-running ones above).
     if (
-      probed >= MIN_SESSIONS_FOR_FRACTION_GUARD &&
-      unhealthy.length > probed * MAX_UNHEALTHY_FRACTION
+      probedConnected >= MIN_SESSIONS_FOR_FRACTION_GUARD &&
+      probeFailed.length > probedConnected * MAX_UNHEALTHY_FRACTION
     ) {
       logger.error(
-        `[SESSIONS-CHECK] ${unhealthy.length}/${probed} connected sessions look ` +
-          `unhealthy at once — treating as a systemic blip and skipping ` +
-          `restarts this pass.`
+        `[SESSIONS-CHECK] ${probeFailed.length}/${probedConnected} connected ` +
+          `sessions failed the probe at once — treating as a systemic blip and ` +
+          `NOT restarting them this pass.`
       );
-      return;
+    } else {
+      toRestart.push(...probeFailed);
     }
 
-    // Pass 2 — restart only the genuinely-dead ones, paced and one at a time.
-    if (unhealthy.length === 0) {
-      logger.info('[SESSIONS-CHECK] All connected sessions healthy.');
+    // Pass 2 — restart the dead ones, paced and one at a time.
+    if (toRestart.length === 0) {
+      logger.info('[SESSIONS-CHECK] All sessions healthy / running.');
     } else {
       logger.info(
-        `[SESSIONS-CHECK] Restarting ${unhealthy.length} dead session(s): ` +
-          unhealthy.join(', ')
+        `[SESSIONS-CHECK] Restarting ${toRestart.length} session(s): ` +
+          toRestart.join(', ')
       );
-      for (const session of unhealthy) {
+      for (const session of toRestart) {
         try {
           await restartSession(session);
         } catch (error) {

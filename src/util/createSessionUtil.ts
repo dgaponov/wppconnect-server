@@ -224,17 +224,22 @@ export default class CreateSessionUtil {
 
                 clientsArray[session] = undefined;
 
-                // remove session data if qr read error
                 if (statusFind === StatusFind.qrReadError) {
                   const pathToken = path.join(
                     __dirname + `../../../tokens/${session}.data.json`
                   );
                   if (fs.existsSync(pathToken)) {
-                    await fs.promises.rm(pathToken);
+                    try {
+                      await fs.promises.rm(pathToken);
+                      req.logger.info(
+                        `[${session}] Token deleted on qrReadError`
+                      );
+                    } catch (error) {
+                      req.logger.error(
+                        `[${session}] Failed to delete token on qrReadError: ${error}`
+                      );
+                    }
                   }
-                  req.logger.info(
-                    `[${session}] Removed session json and browser data`
-                  );
                 }
               }
               callWebHook(client, req, 'status-find', {
@@ -293,7 +298,19 @@ export default class CreateSessionUtil {
         console.log(e);
         const client = this.getClient(session) as any;
         client.status = 'CLOSED';
-        client.close();
+        // When create() times out, clientsArray[session] is still the bare
+        // placeholder ({status, session}) with no .close() — calling it blindly
+        // throws "client.close is not a function" as an unhandled rejection.
+        // Guard it; the watchdog will (re)start this session on its next sweep.
+        if (typeof client.close === 'function') {
+          try {
+            await client.close();
+          } catch (closeErr) {
+            req.logger.error(
+              `[${session}] Error closing after TimeoutError: ${closeErr}`
+            );
+          }
+        }
         //sessionBackupUtil?.disconnect();
       }
     }
