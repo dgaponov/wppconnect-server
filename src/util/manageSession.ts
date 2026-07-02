@@ -37,7 +37,6 @@ const hasExecutionError = (result: ExecResult): boolean => !!result.error;
 const safeExec = (command: string): ExecResult => {
   try {
     const result = execSync(command, { stdio: 'pipe' });
-    996220445692;
 
     return {
       output: result.toString().trim(),
@@ -161,19 +160,69 @@ function sleep(time: number) {
   return new Promise((resolve) => setTimeout(resolve, time));
 }
 
+const CHECK_INTERVAL_MS = 1000 * 60 * 10;
+// Per-operation timeouts. A wedged Chromium tab makes CDP calls (screenshot,
+// evaluate) hang FOREVER rather than throw. Without a timeout a single hung
+// session would block the whole sequential sweep and the watchdog would never
+// reschedule — i.e. the exact failure it exists to fix would silently kill it.
+const SCREENSHOT_TIMEOUT_MS = 15000;
+const CLOSE_TIMEOUT_MS = 15000;
+const START_TIMEOUT_MS = 90000;
+const RESTART_PACING_MS = 10000;
+// Systemic-blip guard: if more than this fraction of CONNECTED sessions look
+// unhealthy in a SINGLE pass, it's almost certainly a host-wide spike (CPU/mem)
+// or a WhatsApp Web outage — not real per-session death. Force-restarting them
+// all would only trigger a Chromium OOM storm and can permanently delete tokens
+// (a failed restart → qrReadError → token removed in createSessionUtil). In that
+// case we do nothing this pass and wait for the next tick.
+const MAX_UNHEALTHY_FRACTION = 0.5;
+const MIN_SESSIONS_FOR_FRACTION_GUARD = 4;
+
 let checkRunningSessionsTimeout: NodeJS.Timeout | null = null;
+// Single-flight guard: never let two sweeps run concurrently (they would race
+// on pkill/startSession — one killing a browser the other just launched).
+let isChecking = false;
+
+// Reject after `ms` if `promise` hasn't settled. The underlying promise is
+// abandoned (a hung CDP call is left dangling), which is fine — we only care
+// that the sweep keeps moving.
+function withTimeout<T>(
+  promise: Promise<T> | undefined,
+  ms: number,
+  label: string
+): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`timeout after ${ms}ms: ${label}`)),
+      ms
+    );
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 async function restartSession(session: string) {
   const client = clientsArray[session];
 
-  logger.info('[SESSIONS-CHECK] Trying to restart session ' + session + '...');
+  logger.info('[SESSIONS-CHECK] Restarting session ' + session + '...');
 
   if (client && client.status) {
     try {
-      await client.close?.();
+      await withTimeout(client.close?.(), CLOSE_TIMEOUT_MS, `close ${session}`);
     } catch (error) {
       logger.error(
-        '[SESSIONS-CHECK] Error closing session ' + session + ': ' + error
+        '[SESSIONS-CHECK] Error/timeout closing session ' +
+          session +
+          ': ' +
+          error
       );
     }
     client.status = 'CLOSED';
@@ -182,92 +231,141 @@ async function restartSession(session: string) {
   if (config.customUserDataDir) {
     const sessionUserDataDir = path.join(config.customUserDataDir, session);
 
-    // Kill all browsers with session user data dir
-    try {
-      const result = safeExec(`pkill -f ${sessionUserDataDir}`);
-      logger.error('[SESSIONS-CHECK] Try killing browser result');
-      console.log(result);
-      logger.info(result);
-    } catch (err) {
-      logger.error('[SESSIONS-CHECK] Error killing browsers for ' + session);
-      logger.error(err);
-    }
+    // Kill ONLY this session's browser tree. `pkill -f` is a substring/regex
+    // match, so a bare path would also match sibling sessions whose id has this
+    // one as a prefix (e.g. "79104617787" matches "791046177870"). Anchor with a
+    // non-digit-or-end boundary so only the exact profile path matches. Killing
+    // the main browser process reaps its renderer/gpu children.
+    const killPattern = `${sessionUserDataDir}([^0-9]|$)`;
+    safeExec(`pkill -f '${killPattern}'`);
 
-    // Remove browser lockfile for remove conflicts with other playwright instance=
-    safeExec(`rm -rf ${sessionUserDataDir}/SingletonLock`);
-    safeExec(`rm -rf ${sessionUserDataDir}/SingletonCookie`);
-    safeExec(`rm -rf ${sessionUserDataDir}/SingletonSocket`);
-    logger.info('[SESSIONS-CHECK] Removed browser lockfiles for ' + session);
+    // Remove browser lockfiles so the fresh browser can reuse the profile.
+    safeExec(`rm -rf '${sessionUserDataDir}/SingletonLock'`);
+    safeExec(`rm -rf '${sessionUserDataDir}/SingletonCookie'`);
+    safeExec(`rm -rf '${sessionUserDataDir}/SingletonSocket'`);
+    logger.info(
+      '[SESSIONS-CHECK] Killed browser + cleared lockfiles for ' + session
+    );
   }
 
-  await startSession(config, session, logger);
-  await sleep(10000);
+  try {
+    await withTimeout(
+      startSession(config, session, logger),
+      START_TIMEOUT_MS,
+      `start ${session}`
+    );
+  } catch (error) {
+    logger.error(
+      '[SESSIONS-CHECK] Error/timeout starting session ' +
+        session +
+        ': ' +
+        error
+    );
+  }
+
+  // Pace restarts so a batch of dead sessions doesn't spawn a Chromium
+  // thundering herd all at once.
+  await sleep(RESTART_PACING_MS);
 }
 
 async function checkRunningSessions() {
-  logger.info('[SESSIONS-CHECK] Checking running sessions...');
-  const names = await getAllTokens();
+  // If a previous sweep is still in flight, skip this tick. The in-flight sweep
+  // reschedules itself in its finally block, so the chain is never broken.
+  if (isChecking) {
+    logger.warn(
+      '[SESSIONS-CHECK] Previous sweep still running — skipping this tick.'
+    );
+    return;
+  }
+  isChecking = true;
 
-  logger.info(
-    '[SESSIONS-CHECK] Found ' + names.length + ' sessions in store...'
-  );
-  logger.info(`[SESSIONS-CHECK] Sessions: ${names.join(', ')}`);
+  try {
+    // getAllTokens swallows store errors and returns undefined; default to [] so
+    // a transient store hiccup can't crash the sweep (and kill the watchdog).
+    const names = (await getAllTokens()) || [];
 
-  for (const session of names) {
-    try {
+    logger.info(
+      `[SESSIONS-CHECK] Checking ${names.length} sessions: ${names.join(', ')}`
+    );
+
+    // Pass 1 — probe only, mutate nothing. Only CONNECTED sessions are
+    // candidates: QR / PHONECODE / INITIALIZING sessions are mid-lifecycle, and
+    // restarting them aborts linking and can end in qrReadError → token deleted.
+    let probed = 0;
+    const unhealthy: string[] = [];
+
+    for (const session of names) {
       const client = clientsArray[session];
 
-      // Healthy path: CONNECTED and the page still responds. A screenshot is
-      // the cheapest way to prove the Chromium page is alive (a dead/OOM-killed
-      // browser throws here).
-      if (client && client.status === 'CONNECTED') {
-        try {
-          await client.waPage.screenshot({ type: 'png', encoding: 'base64' });
-          logger.info('[SESSIONS-CHECK] Session ' + session + ' is running');
-          continue;
-        } catch (error) {
-          logger.error(
-            '[SESSIONS-CHECK] Screenshot failed for ' +
-              session +
-              ' — browser likely dead, will restart'
-          );
-          logger.error(error);
-        }
+      if (!client || client.status !== 'CONNECTED') {
+        logger.info(
+          `[SESSIONS-CHECK] Skipping ${session} (status=${
+            client?.status ?? 'none'
+          })`
+        );
+        continue;
       }
 
-      // Anything else (CLOSED / undefined / stuck INITIALIZING / screenshot
-      // failed above) gets an INDIVIDUAL restart — never a whole-process exit.
-      // restartSession() is paced (sleep 10s) so many dead sessions don't spawn
-      // a Chromium thundering herd at once.
-      logger.info(
-        '[SESSIONS-CHECK] Restarting unhealthy session ' +
-          session +
-          ' (status=' +
-          (client?.status ?? 'none') +
-          ')'
-      );
+      probed++;
       try {
-        await restartSession(session);
+        await withTimeout(
+          client.waPage?.screenshot({ type: 'png', encoding: 'base64' }),
+          SCREENSHOT_TIMEOUT_MS,
+          `screenshot ${session}`
+        );
+        logger.info(`[SESSIONS-CHECK] ${session} healthy`);
       } catch (error) {
         logger.error(
-          '[SESSIONS-CHECK] Failed to restart session ' + session + ': ' + error
+          `[SESSIONS-CHECK] Health probe failed for ${session} — ` +
+            `browser likely dead/wedged: ${error}`
         );
+        unhealthy.push(session);
       }
-    } catch (error) {
-      logger.error('[SESSIONS-CHECK] Error checking session ' + session);
-      logger.error(error);
     }
-  }
 
-  logger.info(
-    '[SESSIONS-CHECK] Completed checking running sessions. Rescheduling.'
-  );
-  scheduleCheckRunningSessions();
+    // Systemic-blip guard — see MAX_UNHEALTHY_FRACTION above.
+    if (
+      probed >= MIN_SESSIONS_FOR_FRACTION_GUARD &&
+      unhealthy.length > probed * MAX_UNHEALTHY_FRACTION
+    ) {
+      logger.error(
+        `[SESSIONS-CHECK] ${unhealthy.length}/${probed} connected sessions look ` +
+          `unhealthy at once — treating as a systemic blip and skipping ` +
+          `restarts this pass.`
+      );
+      return;
+    }
+
+    // Pass 2 — restart only the genuinely-dead ones, paced and one at a time.
+    if (unhealthy.length === 0) {
+      logger.info('[SESSIONS-CHECK] All connected sessions healthy.');
+    } else {
+      logger.info(
+        `[SESSIONS-CHECK] Restarting ${unhealthy.length} dead session(s): ` +
+          unhealthy.join(', ')
+      );
+      for (const session of unhealthy) {
+        try {
+          await restartSession(session);
+        } catch (error) {
+          logger.error(
+            `[SESSIONS-CHECK] Failed to restart ${session}: ${error}`
+          );
+        }
+      }
+    }
+  } catch (error) {
+    logger.error('[SESSIONS-CHECK] Unexpected error during sweep: ' + error);
+  } finally {
+    isChecking = false;
+    scheduleCheckRunningSessions();
+  }
 }
 
 export function scheduleCheckRunningSessions() {
+  if (checkRunningSessionsTimeout) clearTimeout(checkRunningSessionsTimeout);
   checkRunningSessionsTimeout = setTimeout(
     checkRunningSessions,
-    1000 * 60 * 10
+    CHECK_INTERVAL_MS
   );
 }
