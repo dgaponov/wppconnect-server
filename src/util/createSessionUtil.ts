@@ -30,7 +30,7 @@ import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
 import getAllTokens from './getAllTokens';
-import { SessionBackupUtil } from './sessionsBackup';
+//import { SessionBackupUtil } from './sessionsBackup';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
 
@@ -86,7 +86,7 @@ export default class CreateSessionUtil {
     session: string,
     res?: any
   ) {
-    let sessionBackupUtil: SessionBackupUtil | undefined;
+    //let sessionBackupUtil: SessionBackupUtil | undefined;
 
     try {
       let client = this.getClient(session) as any;
@@ -250,12 +250,14 @@ export default class CreateSessionUtil {
         }
       );
 
+      /*
       sessionBackupUtil = new SessionBackupUtil({
         clientId: session,
         dataPath: req.serverOptions.customUserDataDir,
         clientCreateOptions,
       });
       await sessionBackupUtil.beforeBrowserInitialized();
+      */
 
       const wppClient = await create(clientCreateOptions);
 
@@ -263,7 +265,7 @@ export default class CreateSessionUtil {
       await this.start(req, client);
 
       await client.isConnected();
-      await sessionBackupUtil?.afterAuthReady();
+      //await sessionBackupUtil?.afterAuthReady();
       startHelper(client, req);
 
       if (req.serverOptions.webhook.onParticipantsChanged) {
@@ -292,7 +294,7 @@ export default class CreateSessionUtil {
         const client = this.getClient(session) as any;
         client.status = 'CLOSED';
         client.close();
-        sessionBackupUtil?.disconnect();
+        //sessionBackupUtil?.disconnect();
       }
     }
   }
