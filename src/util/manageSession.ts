@@ -15,11 +15,11 @@
  */
 
 import archiver from 'archiver';
+import { execSync } from 'child_process';
 import { Request } from 'express';
 import fileSystem from 'fs';
 import path from 'path';
 import unzipper from 'unzipper';
-import { execSync } from 'child_process';
 
 import { logger } from '..';
 import config from '../config';
