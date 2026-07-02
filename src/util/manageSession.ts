@@ -204,27 +204,6 @@ async function restartSession(session: string) {
   await sleep(10000);
 }
 
-async function safeRestartSessions() {
-  const names = await getAllTokens();
-
-  // close all sessions
-  for (const session of names) {
-    const client = clientsArray[session];
-    try {
-      if (client?.status) {
-        logger.info('Stopping session: ' + session);
-        await client.close();
-      }
-      delete clientsArray[session];
-    } catch (error) {
-      logger.error('Not was possible stop session: ' + session);
-    }
-  }
-
-  // Kill process
-  process.exit();
-}
-
 async function checkRunningSessions() {
   logger.info('[SESSIONS-CHECK] Checking running sessions...');
   const names = await getAllTokens();
@@ -232,60 +211,47 @@ async function checkRunningSessions() {
   logger.info(
     '[SESSIONS-CHECK] Found ' + names.length + ' sessions in store...'
   );
-
   logger.info(`[SESSIONS-CHECK] Sessions: ${names.join(', ')}`);
-  let restartsCount = 0;
 
   for (const session of names) {
     try {
       const client = clientsArray[session];
 
+      // Healthy path: CONNECTED and the page still responds. A screenshot is
+      // the cheapest way to prove the Chromium page is alive (a dead/OOM-killed
+      // browser throws here).
       if (client && client.status === 'CONNECTED') {
         try {
-          await client.waPage.screenshot({
-            type: 'png',
-            encoding: 'base64',
-          });
-          await client.unblockContact(session);
+          await client.waPage.screenshot({ type: 'png', encoding: 'base64' });
+          logger.info('[SESSIONS-CHECK] Session ' + session + ' is running');
+          continue;
         } catch (error) {
           logger.error(
-            '[SESSIONS-CHECK] Error taking screenshot of session ' + session
+            '[SESSIONS-CHECK] Screenshot failed for ' +
+              session +
+              ' — browser likely dead, will restart'
           );
           logger.error(error);
-          logger.error('[SESSIONS-CHECK] Need restart ' + session);
-          restartsCount += 1;
-          continue;
         }
-
-        logger.info('[SESSIONS-CHECK] Session ' + session + ' is running');
-        continue;
       }
 
-      if (client && client.status === 'INITIALIZING') {
-        logger.info(
-          '[SESSIONS-CHECK] Session ' +
-            session +
-            ' is initializing very long. Try restarting session...'
+      // Anything else (CLOSED / undefined / stuck INITIALIZING / screenshot
+      // failed above) gets an INDIVIDUAL restart — never a whole-process exit.
+      // restartSession() is paced (sleep 10s) so many dead sessions don't spawn
+      // a Chromium thundering herd at once.
+      logger.info(
+        '[SESSIONS-CHECK] Restarting unhealthy session ' +
+          session +
+          ' (status=' +
+          (client?.status ?? 'none') +
+          ')'
+      );
+      try {
+        await restartSession(session);
+      } catch (error) {
+        logger.error(
+          '[SESSIONS-CHECK] Failed to restart session ' + session + ': ' + error
         );
-
-        restartsCount += 1;
-        continue;
-      }
-
-      if (!client || !client.status || client.status === 'CLOSED') {
-        logger.info(
-          '[SESSIONS-CHECK] Session ' + session + ' is not running or closed'
-        );
-        restartsCount += 1;
-        continue;
-      }
-
-      if (client && client.status) {
-        logger.info(
-          '[SESSIONS-CHECK] Session ' + session + ' is not connected'
-        );
-        restartsCount += 1;
-        continue;
       }
     } catch (error) {
       logger.error('[SESSIONS-CHECK] Error checking session ' + session);
@@ -293,13 +259,10 @@ async function checkRunningSessions() {
     }
   }
 
-  logger.info('[SESSIONS-CHECK] Completed checking running sessions');
-  if (restartsCount) {
-    logger.info('[SESSIONS-CHECK] Need restart ' + restartsCount + ' sessions');
-    await safeRestartSessions();
-  } else {
-    scheduleCheckRunningSessions();
-  }
+  logger.info(
+    '[SESSIONS-CHECK] Completed checking running sessions. Rescheduling.'
+  );
+  scheduleCheckRunningSessions();
 }
 
 export function scheduleCheckRunningSessions() {

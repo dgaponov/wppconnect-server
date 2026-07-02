@@ -171,6 +171,41 @@ export default class CreateSessionUtil {
           statusFind: async (statusFind: StatusFind) => {
             try {
               eventEmitter.emit(`status-${client.session}`, client, statusFind);
+
+              // Debounce transient unregisters. The wppconnect library polls
+              // WPP.conn.isRegistered() every 1s and fires 'disconnectedMobile'
+              // on the first falsy read. A brief network/DNS blip makes that
+              // flap false for a moment, and closing immediately turns a
+              // transient hiccup into a permanently-dead session. Wait a grace
+              // window and re-check the connection; only tear down if the device
+              // is still not connected.
+              if (statusFind === StatusFind.disconnectedMobile) {
+                const graceMs = 20000;
+                req.logger.warn(
+                  `[${session}] disconnectedMobile — waiting ${graceMs}ms before closing (debounce)`
+                );
+                await new Promise((resolve) => setTimeout(resolve, graceMs));
+                let reconnected = false;
+                try {
+                  reconnected = await client.isConnected();
+                } catch (_error) {
+                  reconnected = false;
+                }
+                if (reconnected) {
+                  req.logger.info(
+                    `[${session}] reconnected during grace window — keeping session alive`
+                  );
+                  callWebHook(client, req, 'status-find', {
+                    status: 'reconnectedMobile',
+                    session: client.session,
+                  });
+                  return;
+                }
+                req.logger.warn(
+                  `[${session}] still disconnected after grace — closing session`
+                );
+              }
+
               if (
                 statusFind === StatusFind.autocloseCalled ||
                 statusFind === StatusFind.disconnectedMobile ||
