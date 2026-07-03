@@ -313,6 +313,18 @@ async function restartSession(session: string) {
     client.status = 'CLOSED';
   }
 
+  // Drop the stale client object before re-creating. createSessionUtil does
+  // `Object.assign(wppClient, getClient(session))`, and the wppconnect client
+  // stores its puppeteer Page as an own-enumerable `page` field (the `waPage`
+  // getter returns `this.page`). If the OLD client lingers here, getClient()
+  // returns it and Object.assign copies its DEAD `page` over the fresh
+  // wppClient.page — so the restarted session reports CONNECTED (events are
+  // bound to the new page via closures) while waPage/isConnected/screenshot
+  // still hit the old dead page (-> "detached Frame" / "Session closed").
+  // Clearing it forces getClient() to mint a clean {status, session}
+  // placeholder, so only those harmless props get merged onto the new client.
+  delete clientsArray[session];
+
   if (config.customUserDataDir) {
     const sessionUserDataDir = path.join(config.customUserDataDir, session);
 

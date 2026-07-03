@@ -538,6 +538,17 @@ export async function getSessionState(req: Request, res: Response) {
 
 export async function getSnapshot(req: Request, res: any) {
   try {
+    // The /get-snapshot route is gated by verifyToken but NOT by
+    // statusConnection, so req.client may be missing (session not created, or
+    // just removed after a qrReadError/token deletion). Guard it instead of
+    // crashing with a TypeError on `req.client.waPage`.
+    if (!req.client?.waPage) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Session is not active or has no browser page',
+      });
+    }
+
     const page = req.client.waPage;
     const screenshot = await page.screenshot({
       type: 'png',
@@ -550,7 +561,7 @@ export async function getSnapshot(req: Request, res: any) {
     });
   } catch (ex) {
     req.logger.error(ex);
-    return res.status(500).json({
+    return res.status(503).json({
       status: 'error',
       message: 'The session is not active',
       error: ex,
