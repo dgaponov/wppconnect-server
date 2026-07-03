@@ -178,15 +178,25 @@ export class SessionResourceMonitor {
       const stats = await pidusage(pids);
 
       let totalCpu = 0;
-      let totalMemory = 0;
 
-      // Chromium creates multiple processes (main + renderers + GPU)
+      // CPU is safe to sum across processes (no sharing between them).
       for (const pid of pids) {
         if (stats[pid]) {
           totalCpu += stats[pid].cpu;
-          totalMemory += stats[pid].memory;
         }
       }
+
+      // Memory must NOT be a plain sum of per-process RSS. Chromium spawns ~10
+      // processes (main + renderers + gpu + utility) that share large regions
+      // (mapped libraries, shared memory between main and renderers). Each
+      // process's RSS counts those shared pages in full, so summing RSS over the
+      // tree double-counts shared memory up to Nx — it reported ~1.3-1.9 GB per
+      // session, more than the whole 8 GB host across sessions. Use PSS
+      // (proportional set size) instead: each process is charged only its share
+      // of shared pages, so summing PSS across the tree is correct and matches
+      // real container usage (~500-900 MB/session). Falls back to the pidusage
+      // RSS sum where /proc/<pid>/smaps_rollup isn't available (non-Linux, perms).
+      const totalMemory = await this.getTreeMemoryBytes(pids, stats);
 
       return {
         cpu: totalCpu,
@@ -198,6 +208,56 @@ export class SessionResourceMonitor {
       console.error('Error getting process usage:', error);
       return { cpu: 0, memory: 0, count: 0, processes: [] };
     }
+  }
+
+  /**
+   * Sum real memory of a process tree via PSS (Linux /proc/<pid>/smaps_rollup).
+   * PSS divides each shared page by the number of processes mapping it, so
+   * summing PSS across a Chromium tree avoids the RSS double-counting problem.
+   * Returns bytes. Falls back to the pidusage RSS sum if PSS can't be read
+   * (e.g. non-Linux, or the process died between the pidusage call and here).
+   *
+   * @param pids - process IDs of the tree
+   * @param stats - pidusage stats keyed by pid (RSS fallback source)
+   * @returns total memory in bytes
+   */
+  private async getTreeMemoryBytes(
+    pids: number[],
+    stats: { [pid: number]: { memory: number } }
+  ): Promise<number> {
+    if (process.platform !== 'linux') {
+      // No smaps_rollup off Linux — fall back to RSS sum.
+      return pids.reduce((sum, pid) => sum + (stats[pid]?.memory ?? 0), 0);
+    }
+
+    let pssKb = 0;
+    let readAny = false;
+
+    await Promise.all(
+      pids.map(async (pid) => {
+        try {
+          const rollup = await fs.promises.readFile(
+            `/proc/${pid}/smaps_rollup`,
+            'utf8'
+          );
+          // Line looks like: "Pss:                1234 kB"
+          const match = rollup.match(/^Pss:\s+(\d+)\s+kB/m);
+          if (match) {
+            pssKb += parseInt(match[1], 10);
+            readAny = true;
+          }
+        } catch {
+          // Process gone or no smaps_rollup — skip; RSS fallback covers total.
+        }
+      })
+    );
+
+    if (!readAny) {
+      // Couldn't read PSS for anything — fall back to RSS sum.
+      return pids.reduce((sum, pid) => sum + (stats[pid]?.memory ?? 0), 0);
+    }
+
+    return pssKb * 1024;
   }
 
   /**
