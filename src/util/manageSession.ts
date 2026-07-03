@@ -25,6 +25,7 @@ import { logger } from '..';
 import config from '../config';
 import { startAllSessions, startSession } from './functions';
 import getAllTokens from './getAllTokens';
+import { SessionResourceMonitor } from './SessionResourceMonitor';
 import { clientsArray } from './sessionUtil';
 
 type ExecResult = {
@@ -161,6 +162,18 @@ function sleep(time: number) {
 }
 
 const CHECK_INTERVAL_MS = 1000 * 60 * 10;
+// RAM limit per session (Chromium tree, PSS). A session whose browser tree
+// crosses this is leaking (runaway renderer / wedged WA-Web tab) and gets
+// killed + revived by restartSession. PSS is the real per-session footprint
+// (~500-900 MB healthy), so 1200 MB is well past normal noise.
+const MEMORY_LIMIT_MB = 1200;
+// Reuse one monitor instance across sweeps — its PID cache (5s) is pointless
+// across the 10-min sweep interval, but a single instance avoids re-reading
+// userDataDir / re-allocating state each pass.
+const resourceMonitor = new SessionResourceMonitor(
+  config.customUserDataDir || './userDataDir/',
+  5000
+);
 // Per-operation timeouts. A wedged Chromium tab makes CDP calls (screenshot,
 // evaluate) hang FOREVER rather than throw. Without a timeout a single hung
 // session would block the whole sequential sweep and the watchdog would never
@@ -407,6 +420,7 @@ async function checkRunningSessions() {
     let probedConnected = 0;
     const probeFailed: string[] = []; // CONNECTED but page dead — guarded below
     const notRunning: string[] = []; // CLOSED / none — always safe to (re)start
+    const ramOver: string[] = []; // CONNECTED but over MEMORY_LIMIT_MB — always restart
 
     for (const session of names) {
       const client = clientsArray[session];
@@ -417,6 +431,30 @@ async function checkRunningSessions() {
         // Left a skip-status (or stayed healthy) — clear any stuck counter so a
         // future dip into INITIALIZING starts counting from 1 again.
         stuckPasses.delete(session);
+
+        // RAM guard — checked BEFORE the screenshot probe so an over-limit
+        // session is killed without also paying for a (likely wedged) probe.
+        // A real per-session leak is never a host-wide blip, so ramOver bypasses
+        // the MAX_UNHEALTHY_FRACTION guard that probeFailed is subject to below.
+        try {
+          const usage = await resourceMonitor.getSessionUsage(session);
+          const memBytes = usage.chromium?.memory.bytes ?? 0;
+          const memMb = memBytes / 1024 / 1024;
+          if (memMb >= MEMORY_LIMIT_MB) {
+            logger.error(
+              `[SESSIONS-CHECK] ${session} using ${memMb.toFixed(0)} MB >= ` +
+                `${MEMORY_LIMIT_MB} MB limit — killing and restarting`
+            );
+            ramOver.push(session);
+            continue;
+          }
+        } catch (error) {
+          // Don't let a measurement failure mask the probe — fall through.
+          logger.error(
+            `[SESSIONS-CHECK] Failed to measure RAM for ${session}: ${error}`
+          );
+        }
+
         try {
           await withTimeout(
             (client as any).waPage?.screenshot({
@@ -500,6 +538,11 @@ async function checkRunningSessions() {
     } else {
       toRestart.push(...probeFailed);
     }
+
+    // RAM-kill bypasses the systemic-blip guard entirely: a single session
+    // leaking past MEMORY_LIMIT_MB is a per-session defect, not a host spike,
+    // and leaving it running risks an OOM that would take down every session.
+    toRestart.push(...ramOver);
 
     // Pass 2 — restart the dead ones, paced and one at a time.
     if (toRestart.length === 0) {
