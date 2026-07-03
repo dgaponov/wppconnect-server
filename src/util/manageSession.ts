@@ -213,8 +213,26 @@ const MIN_SESSIONS_FOR_FRACTION_GUARD = 4;
 // 2 passes means we act after ~10-20min stuck — far beyond any legit init.
 const SKIP_STATUSES = new Set(['QRCODE', 'PHONECODE', 'INITIALIZING']);
 const INITIALIZING_STUCK_PASSES = 2;
+// WA-level zombie detection. The screenshot probe only proves the browser
+// page is alive — NOT that WhatsApp Web is actually authenticated. A session
+// whose WA login expired server-side (phone offline too long / logged out /
+// forced unpair) keeps status=CONNECTED and renders the "not logged in"
+// screen, so it sails past the screenshot probe as "healthy" while being a
+// non-functional zombie. We additionally probe client.isConnected()
+// (WPP.conn.isLoggedIn) — true only when genuinely authenticated. Ride out
+// transient WA reconnect blips by acting only after this many CONSECUTIVE
+// down passes (10-min interval → ~20 min tolerance); a real zombie never
+// recovers, a blip clears in seconds. Sessions flagged here go into the same
+// probeFailed bucket, so the MAX_UNHEALTHY_FRACTION systemic-blip guard still
+// suppresses a mass restart during a real WA outage.
+const WA_PROBE_TIMEOUT_MS = 15000;
+const WA_DOWN_STUCK_PASSES = 2;
 
 let checkRunningSessionsTimeout: NodeJS.Timeout | null = null;
+// consecutive CONNECTED passes each session has reported WA not-logged-in
+// (isConnected() === false). Reset to 0 on any true reading or when the
+// session leaves CONNECTED.
+const waDownPasses = new Map<string, number>();
 // consecutive passes each session has held its CURRENT skip-status. Keyed by
 // session; entry is rewritten every sweep. Cleared whenever the session leaves
 // the skip-statuses (CONNECTED/CLOSED/NONE) so the counter starts fresh next
@@ -455,6 +473,7 @@ async function checkRunningSessions() {
           );
         }
 
+        // Probe 1 — browser page alive (catches a dead/wedged Chromium tab).
         try {
           await withTimeout(
             (client as any).waPage?.screenshot({
@@ -464,13 +483,56 @@ async function checkRunningSessions() {
             SCREENSHOT_TIMEOUT_MS,
             `screenshot ${session}`
           );
-          logger.info(`[SESSIONS-CHECK] ${session} healthy`);
         } catch (error) {
           logger.error(
             `[SESSIONS-CHECK] Health probe failed for ${session} — ` +
               `browser likely dead/wedged: ${error}`
           );
+          waDownPasses.delete(session);
           probeFailed.push(session);
+          continue;
+        }
+
+        // Probe 2 — WhatsApp Web actually authenticated. A zombie (login
+        // expired server-side) passes the screenshot probe but reports
+        // isConnected() === false. Count consecutive downs to ride out a
+        // transient WA reconnect blip before declaring the session dead.
+        let waConnected = false;
+        try {
+          waConnected = await withTimeout(
+            (client as any).isConnected?.(),
+            WA_PROBE_TIMEOUT_MS,
+            `isConnected ${session}`
+          );
+        } catch (error) {
+          logger.error(
+            `[SESSIONS-CHECK] WA probe threw for ${session} — ` +
+              `page wedged despite live screenshot: ${error}`
+          );
+          waDownPasses.delete(session);
+          probeFailed.push(session);
+          continue;
+        }
+
+        if (waConnected) {
+          waDownPasses.delete(session);
+          logger.info(`[SESSIONS-CHECK] ${session} healthy`);
+        } else {
+          const count = (waDownPasses.get(session) ?? 0) + 1;
+          waDownPasses.set(session, count);
+          if (count >= WA_DOWN_STUCK_PASSES) {
+            logger.error(
+              `[SESSIONS-CHECK] ${session} browser alive but WA not connected ` +
+                `for ${count} passes (zombie) — restarting`
+            );
+            waDownPasses.delete(session);
+            probeFailed.push(session);
+          } else {
+            logger.warn(
+              `[SESSIONS-CHECK] ${session} WA not connected ` +
+                `(count ${count}/${WA_DOWN_STUCK_PASSES}) — waiting to rule out blip`
+            );
+          }
         }
         continue;
       }
@@ -515,6 +577,9 @@ async function checkRunningSessions() {
     const nameSet = new Set(names);
     for (const key of stuckPasses.keys()) {
       if (!nameSet.has(key)) stuckPasses.delete(key);
+    }
+    for (const key of waDownPasses.keys()) {
+      if (!nameSet.has(key)) waDownPasses.delete(key);
     }
 
     // Revive not-running sessions unconditionally (paced). This is what heals a
