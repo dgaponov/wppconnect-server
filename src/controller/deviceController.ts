@@ -1162,6 +1162,14 @@ export async function unblockContact(req: Request, res: Response) {
    */
   const { phone } = req.body;
 
+  if (typeof req.client === 'undefined') {
+    return res.status(503).json({
+      status: 'error',
+      message:
+        'Session not started / client unavailable. Start the session before calling this route.',
+    });
+  }
+
   try {
     await req.client.unblockContact(`${phone}`);
     res

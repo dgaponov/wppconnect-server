@@ -172,43 +172,18 @@ export default class CreateSessionUtil {
             try {
               eventEmitter.emit(`status-${client.session}`, client, statusFind);
 
-              // Debounce transient unregisters. The wppconnect library polls
-              // WPP.conn.isRegistered() every 1s and fires 'disconnectedMobile'
-              // on the first falsy read. A brief network/DNS blip makes that
-              // flap false for a moment, and closing immediately turns a
-              // transient hiccup into a permanently-dead session. Wait a grace
-              // window and re-check the connection; only tear down if the device
-              // is still not connected.
-              if (statusFind === StatusFind.disconnectedMobile) {
-                const graceMs = 20000;
-                req.logger.warn(
-                  `[${session}] disconnectedMobile — waiting ${graceMs}ms before closing (debounce)`
-                );
-                await new Promise((resolve) => setTimeout(resolve, graceMs));
-                let reconnected = false;
-                try {
-                  reconnected = await client.isConnected();
-                } catch (_error) {
-                  reconnected = false;
-                }
-                if (reconnected) {
-                  req.logger.info(
-                    `[${session}] reconnected during grace window — keeping session alive`
-                  );
-                  callWebHook(client, req, 'status-find', {
-                    status: 'reconnectedMobile',
-                    session: client.session,
-                  });
-                  return;
-                }
-                req.logger.warn(
-                  `[${session}] still disconnected after grace — closing session`
-                );
-              }
-
+              // NOTE: do NOT close the session on `disconnectedMobile`.
+              // The wppconnect library polls WPP.conn.isRegistered() every 1s
+              // and fires 'disconnectedMobile' on the first falsy read — which
+              // also happens during normal (re)connection while the multi-device
+              // handshake is still in progress (session sits in "Session
+              // Unpaired" / "QR (CONNECTING)" for longer than any grace window).
+              // Closing the client there forces a reload that trips autoClose →
+              // qrReadError, which DELETES the token file — a transient blip
+              // becomes a permanently-dead session that needs a fresh QR scan.
+              // WhatsApp reconnects on its own; leave it alone.
               if (
                 statusFind === StatusFind.autocloseCalled ||
-                statusFind === StatusFind.disconnectedMobile ||
                 statusFind === StatusFind.qrReadError
               ) {
                 client.status = 'CLOSED';
