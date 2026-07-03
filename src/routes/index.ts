@@ -30,6 +30,7 @@ import * as MiscController from '../controller/miscController';
 import * as NewsletterController from '../controller/newsletterController';
 import * as OrderController from '../controller/orderController';
 import * as SessionController from '../controller/sessionController';
+import * as ResourceController from '../controller/resourceController';
 import * as StatusController from '../controller/statusController';
 import verifyToken from '../middleware/auth';
 import * as HealthCheck from '../middleware/healthCheck';
@@ -970,6 +971,21 @@ routes.post(
 );
 
 routes.post('/api/:session/chatwoot', DeviceController.chatWoot);
+
+// Session resource monitoring (CPU/memory per session)
+routes.get(
+  '/api/:secretkey/all-sessions-resource-usage',
+  ResourceController.getAllSessionsResourceUsage
+);
+routes.get(
+  '/api/:session/resource-usage',
+  verifyToken,
+  ResourceController.getSessionResourceUsage
+);
+routes.post(
+  '/api/resource-usage/clear-cache',
+  ResourceController.clearResourceCache
+);
 
 // Api Doc
 routes.use('/api-docs', swaggerUi.serve as any);
