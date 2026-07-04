@@ -499,11 +499,12 @@ async function checkRunningSessions() {
         // transient WA reconnect blip before declaring the session dead.
         let waConnected = false;
         try {
-          waConnected = await withTimeout(
-            (client as any).isConnected?.(),
-            WA_PROBE_TIMEOUT_MS,
-            `isConnected ${session}`
-          );
+          waConnected =
+            (await withTimeout(
+              (client as any).isConnected?.(),
+              WA_PROBE_TIMEOUT_MS,
+              `isConnected ${session}`
+            )) ?? false;
         } catch (error) {
           logger.error(
             `[SESSIONS-CHECK] WA probe threw for ${session} — ` +
