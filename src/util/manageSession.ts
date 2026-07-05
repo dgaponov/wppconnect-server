@@ -23,10 +23,10 @@ import unzipper from 'unzipper';
 
 import { logger } from '..';
 import config from '../config';
-import { startAllSessions, startSession } from './functions';
+import { callWebHook, startAllSessions, startSession } from './functions';
 import getAllTokens from './getAllTokens';
 import { SessionResourceMonitor } from './SessionResourceMonitor';
-import { clientsArray } from './sessionUtil';
+import { clientsArray, deleteSessionOnArray } from './sessionUtil';
 
 type ExecResult = {
   output: string | undefined;
@@ -227,6 +227,18 @@ const INITIALIZING_STUCK_PASSES = 2;
 // suppresses a mass restart during a real WA outage.
 const WA_PROBE_TIMEOUT_MS = 15000;
 const WA_DOWN_STUCK_PASSES = 2;
+// Stuck-load detector. A freshly-linked WA Web sometimes hangs on the full-screen
+// "Logging out" spinner or an endless chat-loading spinner. The page is alive and
+// isConnected() is true, so the watchdog above calls it healthy — yet the account is
+// unusable. A dedicated, faster loop probes the DOM for the loaded chat-list pane; if a
+// CONNECTED session still hasn't rendered it (or shows the "Logging out" screen) past a
+// grace window, we drop it (logout + delete token + delete wedged profile) so the CRM
+// can issue a fresh QR. See isWaLoaded / checkStuckLoadingSessions / dropSession below.
+const STUCK_CHECK_INTERVAL_MS = 1000 * 60 * 2; // run the fast probe every 2 min
+const STUCK_LOAD_GRACE_MS = 1000 * 60 * 4; // legit slow-load tolerance after CONNECTED
+const STUCK_LOAD_WINDOW_MS = 1000 * 60 * 20; // only probe inside this post-connect window
+const STUCK_LOAD_DROP_PASSES = 2; // consecutive stuck probes before dropping
+const PROBE_EVAL_TIMEOUT_MS = 12000; // a wedged CDP evaluate hangs forever — bound it
 
 let checkRunningSessionsTimeout: NodeJS.Timeout | null = null;
 // consecutive CONNECTED passes each session has reported WA not-logged-in
@@ -241,6 +253,13 @@ const stuckPasses = new Map<string, { status: string; count: number }>();
 // Single-flight guard: never let two sweeps run concurrently (they would race
 // on pkill/startSession — one killing a browser the other just launched).
 let isChecking = false;
+// Stuck-load detector state. connectedAt: timestamp of the first fast-loop tick at
+// which a session was seen CONNECTED (the start of its load window). stuckLoadPasses:
+// consecutive DOM probes inside the window where WA Web hadn't finished loading.
+let isStuckChecking = false;
+const stuckLoadTimer: { current: NodeJS.Timeout | null } = { current: null };
+const connectedAt = new Map<string, number>();
+const stuckLoadPasses = new Map<string, number>();
 
 // Reject after `ms` if `promise` hasn't settled. The underlying promise is
 // abandoned (a hung CDP call is left dangling), which is fine — we only care
@@ -641,5 +660,196 @@ export function scheduleCheckRunningSessions() {
   checkRunningSessionsTimeout = setTimeout(
     checkRunningSessions,
     CHECK_INTERVAL_MS
+  );
+}
+
+// Probe whether WA Web's app shell has finished loading. A freshly-linked session that
+// hangs on the initial spinner OR the "Logging out" screen has NO conversation-list
+// pane rendered, so hasChatList is false; the "Logging out" text is matched directly
+// (multi-locale) as a strong positive signal. Returns loaded=false on any evaluate
+// throw/timeout (a wedged page looks exactly like a stuck-loading page from here).
+async function isWaLoaded(
+  client: any
+): Promise<{ loaded: boolean; loggingOut: boolean }> {
+  let res: { hasChatList: boolean; loggingOut: boolean } | undefined;
+  try {
+    res = await withTimeout(
+      client?.waPage?.evaluate(() => {
+        const body = document.body?.innerText ?? '';
+        const chatList =
+          document.querySelector('[data-testid="chat-list"]') ||
+          document.querySelector('#side aside'); // left-pane fallback
+        return {
+          hasChatList: !!chatList,
+          // en / ru / es / pt-BR / fr — the fleet's WA Web locale isn't pinned.
+          loggingOut: /logging out|выход|cerrando|sair|déconnexion/i.test(body),
+        };
+      }),
+      PROBE_EVAL_TIMEOUT_MS,
+      'stuck-load evaluate'
+    );
+  } catch (error) {
+    // evaluate rejected (page navigating / detached) — treat as not-yet-loaded.
+    logger.warn(`[STUCK-LOAD] probe threw: ${error}`);
+  }
+  if (!res) return { loaded: false, loggingOut: false };
+  return { loaded: !!res.hasChatList, loggingOut: !!res.loggingOut };
+}
+
+// Drop a session: WA logout + kill its Chromium tree + delete token AND the wedged
+// profile, then remove the client object and notify the CRM. Mirrors the
+// logOutSession controller (controller/sessionController.ts) but needs no HTTP req.
+// We deliberately do NOT call startSession afterwards — leaving the session deleted
+// lets the CRM re-link via its normal logoutsession-triggered flow and avoids the
+// known logout→start token-delete race (qrReadError).
+async function dropSession(session: string, reason: string) {
+  const client = clientsArray[session];
+  logger.error(`[STUCK-LOAD] Dropping ${session}: ${reason}`);
+
+  // 1. WA-level logout (best-effort — the page may be wedged).
+  try {
+    await withTimeout(
+      (client as any)?.logout?.(),
+      CLOSE_TIMEOUT_MS,
+      `logout ${session}`
+    );
+  } catch (error) {
+    logger.warn(`[STUCK-LOAD] logout threw for ${session}: ${error}`);
+  }
+
+  // 2. Kill ONLY this session's Chromium tree (reuse the watchdog's anchored pattern).
+  if (config.customUserDataDir) {
+    const dir = path.join(config.customUserDataDir, session);
+    const killPattern = `[c]hromium.*${dir}([^0-9]|$)`;
+    try {
+      await killSessionBrowser(session, killPattern);
+    } catch (error) {
+      logger.warn(
+        `[STUCK-LOAD] killSessionBrowser threw for ${session}: ${error}`
+      );
+    }
+  }
+
+  // 3. Delete token + wedged profile so the next link starts clean (fresh QR).
+  // tokenStorePath is on config but not declared in ServerOptions — cast, mirroring
+  // fileTokenStory.ts which reads the same value.
+  const tokenFile = path.join(
+    (config as any).tokenStorePath,
+    `${session}.data.json`
+  );
+  const profileDir = path.join(config.customUserDataDir, session);
+  for (const p of [tokenFile, profileDir]) {
+    try {
+      await fileSystem.promises.rm(p, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 1000,
+      });
+    } catch (error) {
+      logger.warn(`[STUCK-LOAD] rm ${p} failed: ${error}`);
+    }
+  }
+
+  // 4. Drop the client object (same reason restartSession deletes it — a stale
+  // client with a dead `page` field poisons the next getClient() merge).
+  deleteSessionOnArray(session);
+
+  // 5. Notify CRM via the existing webhook path (build a minimal req-like so
+  // callWebHook can read serverOptions + logger).
+  try {
+    await callWebHook(
+      client,
+      { serverOptions: config, logger } as any,
+      'logoutsession',
+      { message: `Session ${session} dropped: ${reason}`, connected: false }
+    );
+  } catch (error) {
+    logger.warn(`[STUCK-LOAD] webhook failed for ${session}: ${error}`);
+  }
+
+  connectedAt.delete(session);
+  stuckLoadPasses.delete(session);
+}
+
+// Fast loop: for each CONNECTED session inside its post-connect load window, probe the
+// DOM; if WA Web still hasn't loaded (or is on the "Logging out" screen) for
+// STUCK_LOAD_DROP_PASSES consecutive ticks, drop it. Single-flighted like the main
+// watchdog so concurrent ticks can't double-drop.
+async function checkStuckLoadingSessions() {
+  if (isStuckChecking) {
+    return;
+  }
+  isStuckChecking = true;
+  try {
+    for (const session of Object.keys(clientsArray)) {
+      const client = clientsArray[session];
+      if (!client || client.status !== 'CONNECTED') {
+        connectedAt.delete(session);
+        stuckLoadPasses.delete(session);
+        continue;
+      }
+
+      // Record the first tick at which we saw this session CONNECTED — the start
+      // of its load window.
+      if (!connectedAt.has(session)) {
+        connectedAt.set(session, Date.now());
+      }
+      const age = Date.now() - (connectedAt.get(session) ?? Date.now());
+
+      // Too new → legit slow load, give it grace. Too old → long-healthy session,
+      // skip (cheap false-positive insurance).
+      if (age < STUCK_LOAD_GRACE_MS || age > STUCK_LOAD_WINDOW_MS) {
+        continue;
+      }
+
+      const { loaded, loggingOut } = await isWaLoaded(client);
+      if (loaded && !loggingOut) {
+        stuckLoadPasses.delete(session);
+        continue;
+      }
+
+      const reason = loggingOut ? 'logging-out screen' : 'chat list not loaded';
+      const count = (stuckLoadPasses.get(session) ?? 0) + 1;
+      stuckLoadPasses.set(session, count);
+      if (count >= STUCK_LOAD_DROP_PASSES) {
+        logger.warn(
+          `[STUCK-LOAD] ${session} ${reason} (${count}/${STUCK_LOAD_DROP_PASSES}) — dropping`
+        );
+        try {
+          await dropSession(session, reason);
+        } catch (error) {
+          logger.error(
+            `[STUCK-LOAD] dropSession failed for ${session}: ${error}`
+          );
+        }
+      } else {
+        logger.warn(
+          `[STUCK-LOAD] ${session} ${reason} (${count}/${STUCK_LOAD_DROP_PASSES})`
+        );
+      }
+    }
+
+    // Drop counters for sessions no longer present (logged out / migrated away).
+    const live = new Set(Object.keys(clientsArray));
+    for (const key of connectedAt.keys()) {
+      if (!live.has(key)) connectedAt.delete(key);
+    }
+    for (const key of stuckLoadPasses.keys()) {
+      if (!live.has(key)) stuckLoadPasses.delete(key);
+    }
+  } catch (error) {
+    logger.error('[STUCK-LOAD] Unexpected error during sweep: ' + error);
+  } finally {
+    isStuckChecking = false;
+    scheduleStuckCheck();
+  }
+}
+
+export function scheduleStuckCheck() {
+  if (stuckLoadTimer.current) clearTimeout(stuckLoadTimer.current);
+  stuckLoadTimer.current = setTimeout(
+    checkStuckLoadingSessions,
+    STUCK_CHECK_INTERVAL_MS
   );
 }
