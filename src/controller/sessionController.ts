@@ -31,6 +31,44 @@ import { clientsArray, deleteSessionOnArray } from '../util/sessionUtil';
 
 const SessionUtil = new CreateSessionUtil();
 
+// Boot / bulk-start pacing. The old code fired every session concurrently via
+// `.map(async ...)` — a Chromium thundering-herd that made some sessions miss
+// the login-resume window, fall through to QR, and (via qrReadError) get their
+// token permanently deleted. These tune the batched launcher below.
+const START_BATCH_SIZE = 4;
+const START_BATCH_INTERVAL_MS = 20_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Launch sessions in batches of START_BATCH_SIZE, waiting
+// START_BATCH_INTERVAL_MS between batches. Fire-and-forget at the top level so
+// the HTTP response (and boot) return immediately; each session still runs to
+// completion on its own. Spreading browser spawns lets the host absorb them
+// instead of racing every waitForLogin handshake in parallel.
+function startSessionsBatched(sessions: string[], req: any) {
+  (async () => {
+    for (let i = 0; i < sessions.length; i += START_BATCH_SIZE) {
+      const batch = sessions.slice(i, i + START_BATCH_SIZE);
+      req.logger.info(
+        `[startAllSessions] launching batch ${Math.floor(i / START_BATCH_SIZE) + 1}/${Math.ceil(sessions.length / START_BATCH_SIZE)}: ${batch.join(', ')}`
+      );
+      for (const session of batch) {
+        const util = new CreateSessionUtil();
+        util.opendata(req, session).catch((err) =>
+          req.logger.error(
+            `[startAllSessions] ${session} failed to start: ${err}`
+          )
+        );
+      }
+      if (i + START_BATCH_SIZE < sessions.length) {
+        await sleep(START_BATCH_INTERVAL_MS);
+      }
+    }
+  })().catch((err) => req.logger.error(`[startAllSessions] batch loop failed: ${err}`));
+}
+
 async function downloadFileFunction(
   message: Message,
   client: Whatsapp,
@@ -138,10 +176,7 @@ export async function startAllSessions(
     });
   }
 
-  allSessions.map(async (session: string) => {
-    const util = new CreateSessionUtil();
-    await util.opendata(req, session);
-  });
+  startSessionsBatched(allSessions, req);
 
   return await res
     .status(201)
