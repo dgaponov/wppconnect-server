@@ -49,13 +49,8 @@ export class SessionBackupUtil {
   }
 
   async beforeBrowserInitialized() {
-    await this.extractBackupSession();
-    await this.removeSingletonFiles(this.userDataDir);
-
-    this.clientCreateOptions.puppeteerOptions = {
-      ...this.clientCreateOptions.puppeteerOptions,
-      userDataDir: this.userDataDir,
-    };
+    await this.prepareLiveProfile();
+    await this.applyUserDataDir();
   }
 
   async disconnect() {
@@ -71,9 +66,8 @@ export class SessionBackupUtil {
       ); /* Initial delay sync required for session to be stable enough to recover */
       await this.storeRemoteSession();
     }
-    const self = this;
-    this.backupSync = setInterval(async function () {
-      await self.storeRemoteSession();
+    this.backupSync = setInterval(async () => {
+      await this.storeRemoteSession();
     }, this.backupSyncIntervalMs);
   }
 
@@ -90,26 +84,55 @@ export class SessionBackupUtil {
     }
   }
 
-  async extractBackupSession() {
+  /**
+   * Prefer the live userDataDir — only create it (empty) when missing.
+   * Never overwrite a live profile with the backup here: the backup is a
+   * fallback, restored by restoreFromBackup() only if the live launch fails.
+   * (Previously this clobbered a good live profile with a possibly-stale
+   * backup on every start, so a server restart pulled in an expired session.)
+   */
+  async prepareLiveProfile() {
     const sessionExists = await this.isValidPath(this.userDataDir);
-    const backupExists = await this.isValidPath(this.backupPath);
-
     if (!sessionExists) {
       fs.mkdirSync(this.userDataDir, { recursive: true });
-      return;
+    }
+  }
+
+  /**
+   * Fall back to the backup: replace the live userDataDir with the backup
+   * copy. Returns true if a backup was restored, false when there is no
+   * backup to fall back to.
+   */
+  async hasBackup(): Promise<boolean> {
+    return this.isValidPath(this.backupPath);
+  }
+
+  async restoreFromBackup(): Promise<boolean> {
+    const backupExists = await this.isValidPath(this.backupPath);
+    if (!backupExists) {
+      return false;
     }
 
-    if (backupExists) {
-      if (sessionExists) {
-        await this.removePathSilently(this.userDataDir);
-      }
+    await this.removePathSilently(this.userDataDir);
+    await fs.promises
+      .cp(this.backupPath, this.userDataDir, {
+        recursive: true,
+      })
+      .catch(() => {});
+    return this.isValidPath(this.userDataDir);
+  }
 
-      await fs.promises
-        .cp(this.backupPath, this.userDataDir, {
-          recursive: true,
-        })
-        .catch(() => {});
-    }
+  /**
+   * Clear Singleton lockfiles and point puppeteerOptions at the (live or
+   * restored) userDataDir. Shared by the first attempt and the backup retry.
+   */
+  async applyUserDataDir() {
+    await this.removeSingletonFiles(this.userDataDir);
+
+    this.clientCreateOptions.puppeteerOptions = {
+      ...this.clientCreateOptions.puppeteerOptions,
+      userDataDir: this.userDataDir,
+    };
   }
 
   async deleteBackupSession() {

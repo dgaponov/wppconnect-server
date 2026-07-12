@@ -30,7 +30,8 @@ import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
 import getAllTokens from './getAllTokens';
-//import { SessionBackupUtil } from './sessionsBackup';
+import { teardownSessionBrowser } from './manageSession';
+import { SessionBackupUtil } from './sessionsBackup';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
 
@@ -86,7 +87,7 @@ export default class CreateSessionUtil {
     session: string,
     res?: any
   ) {
-    //let sessionBackupUtil: SessionBackupUtil | undefined;
+    let sessionBackupUtil: SessionBackupUtil | undefined;
 
     try {
       let client = this.getClient(session) as any;
@@ -230,22 +231,86 @@ export default class CreateSessionUtil {
         }
       );
 
-      /*
       sessionBackupUtil = new SessionBackupUtil({
         clientId: session,
         dataPath: req.serverOptions.customUserDataDir,
         clientCreateOptions,
       });
-      await sessionBackupUtil.beforeBrowserInitialized();
-      */
 
-      const wppClient = await create(clientCreateOptions);
+      const profileDir = path.join(
+        req.serverOptions.customUserDataDir,
+        session
+      );
 
-      client = clientsArray[session] = Object.assign(wppClient, client);
+      // Launch with up to two profiles: first the live userDataDir, and only
+      // if it never reaches CONNECTED (expired/corrupt profile, qrReadError,
+      // autoClose, browser/launch timeout) fall back to the backup copy once.
+      // A helper / post-connect failure is NOT a profile failure, so the retry
+      // wraps only create() -> isConnected(); start() (handlers) and the
+      // backup-sync wiring run once, after a confirmed connection.
+      let connected = false;
+      let lastError: unknown;
+      // The second attempt only exists to fall back to the backup — skip it
+      // entirely when there's nothing to fall back to, so a no-backup session
+      // doesn't pay for a pointless teardown + reset after a live failure.
+      const maxAttempts = (await sessionBackupUtil.hasBackup()) ? 2 : 1;
+      for (let attempt = 0; attempt < maxAttempts && !connected; attempt++) {
+        if (attempt === 0) {
+          await sessionBackupUtil.beforeBrowserInitialized();
+        } else {
+          const restored = await sessionBackupUtil.restoreFromBackup();
+          if (!restored) {
+            req.logger.info(
+              `[${session}] no backup available — giving up after live launch failed`
+            );
+            break;
+          }
+          req.logger.warn(
+            `[${session}] live userDataDir launch failed — retrying from backup`
+          );
+          await sessionBackupUtil.applyUserDataDir();
+        }
+
+        try {
+          const wppClient = await create(clientCreateOptions);
+          client = clientsArray[session] = Object.assign(wppClient, client);
+          // Confirm WhatsApp Web is actually authenticated. create() only
+          // resolves after waitForLogin(), so a false here means the session
+          // didn't truly come up — treat it as a launch failure and fall back.
+          if (!(await client.isConnected())) {
+            throw new Error('isConnected returned false after create');
+          }
+          connected = true;
+        } catch (e) {
+          lastError = e;
+          req.logger.error(
+            `[${session}] launch attempt ${attempt + 1} failed: ${e}`
+          );
+          // Kill the failed browser BEFORE touching the profile again, else
+          // two Chromium instances race on the same LevelDB and corrupt it.
+          try {
+            await teardownSessionBrowser(session, profileDir);
+          } catch (teardownErr) {
+            req.logger.error(
+              `[${session}] teardown before retry failed: ${teardownErr}`
+            );
+          }
+          // Reset to a clean placeholder so the next create()/Object.assign
+          // doesn't carry a dead `page` field (same reason restartSession
+          // deletes the client object before re-creating).
+          delete clientsArray[session];
+          client = this.getClient(session);
+          client.config = req.body;
+          client.status = 'INITIALIZING';
+        }
+      }
+
+      if (!connected) {
+        throw lastError;
+      }
+
       await this.start(req, client);
-
-      await client.isConnected();
-      //await sessionBackupUtil?.afterAuthReady();
+      await sessionBackupUtil?.afterAuthReady();
       startHelper(client, req);
 
       if (req.serverOptions.webhook.onParticipantsChanged) {
@@ -286,7 +351,7 @@ export default class CreateSessionUtil {
             );
           }
         }
-        //sessionBackupUtil?.disconnect();
+        sessionBackupUtil?.disconnect();
       }
     }
   }

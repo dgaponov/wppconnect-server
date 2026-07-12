@@ -33,8 +33,6 @@ type ExecResult = {
   error: string | null;
 };
 
-const hasExecutionError = (result: ExecResult): boolean => !!result.error;
-
 const safeExec = (command: string): ExecResult => {
   try {
     const result = execSync(command, { stdio: 'pipe' });
@@ -342,6 +340,38 @@ async function killSessionBrowser(
       `refusing to relaunch (would corrupt the profile). Will retry next pass.`
   );
   return false;
+}
+
+/**
+ * Tear down a session's browser for an in-flight launch retry (used by
+ * createSessionUtil's backup fallback). Same safety contract as restartSession:
+ * close → kill the whole Chromium tree for this profile → block until every
+ * process is really gone → clear Singleton lockfiles. Relaunching over a live
+ * or still-flushing Chromium on the same profile corrupts the LevelDB store,
+ * so this MUST fully succeed before the caller restores a backup / re-runs
+ * create() on the same userDataDir.
+ */
+export async function teardownSessionBrowser(
+  session: string,
+  profileDir: string
+): Promise<void> {
+  const client = clientsArray[session];
+  if (client && client.status) {
+    try {
+      await withTimeout(client.close?.(), CLOSE_TIMEOUT_MS, `close ${session}`);
+    } catch (error) {
+      logger.error(`[LAUNCH-RETRY] Error/timeout closing ${session}: ${error}`);
+    }
+  }
+
+  const killPattern = `[c]hromium.*${profileDir}([^0-9]|$)`;
+  await killSessionBrowser(session, killPattern);
+
+  // Profile is now free of live processes — drop stale lockfiles so the next
+  // browser can reuse (or restore over) the userDataDir.
+  safeExec(`rm -rf '${profileDir}/SingletonLock'`);
+  safeExec(`rm -rf '${profileDir}/SingletonCookie'`);
+  safeExec(`rm -rf '${profileDir}/SingletonSocket'`);
 }
 
 async function restartSession(session: string) {
